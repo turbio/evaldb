@@ -6,8 +6,8 @@ CC       := gcc
 #V8_LIBS  := -L./lib -lv8_libplatform -lv8_base -lv8_init -lv8_initializers -lv8_libbase -lv8_libsampler -lv8_nosnapshot -lv8_snapshot
 #LDFLAGS  := -lstdc++ -lboost_system -pthread -lm -lcriu $(V8_LIBS)
 
-CFLAGS   := -std=c99 -O2 -Wall -Wextra -pipe -I./include
-LDFLAGS  :=
+CFLAGS   := -std=c99 -O2 -Wall -Wextra -pipe -I./include $(shell pkg-config --cflags lua53)
+LDFLAGS  := $(shell pkg-config --libs lua53)
 
 SRCS     := $(shell find $(SRCDIR) -type f -name "*.c")
 OBJS     := $(patsubst %.c,%.o,$(SRCS))
