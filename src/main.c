@@ -50,19 +50,22 @@ void *open_db(const char *path, int size) {
 
 struct heap_header {
   uint16_t v;
-
   uint64_t size; // size includes self
-  uint64_t used;
 
-  struct heap_frame *first;
+  struct heap_frame *root;
 
   uintptr_t lua_state;
 };
 
 enum frame_type {
   EMPTY = 0,
-  NODE = (1 << 0),
-  LEAF = (1 << 1),
+  FREE_LEAF = (1 << 0),
+  USED_LEAF = (1 << 1),
+  FRAME = (1 << 2),
+};
+
+struct heap_leaf {
+  size_t size;
 };
 
 struct heap_frame {
@@ -90,28 +93,42 @@ void memTreeTraverse(struct heap_frame *frame, int depth) {
     memset(pad, ' ', (depth + 1) * 2);
     pad[(depth + 1) * 2] = '\0';
 
-    if (frame->ctype[i] == LEAF) {
+    if (frame->ctype[i] == USED_LEAF) {
+      printf("%s┌", pad);
+      for (int i = 0; i < 27; i++) {
+        printf("─");
+      }
+      printf("\n%s│", pad);
+      printf(" L %p %ld b\n", frame->c[i],
+             ((struct heap_leaf *)frame->c[i])->size);
+
+    } else if (frame->ctype[i] == FREE_LEAF) {
+      printf("%s┌", pad);
+      for (int i = 0; i < 27; i++) {
+        printf("─");
+      }
+      printf("\n%s│", pad);
+      printf(" FREE %ld b\n", ((struct heap_leaf *)frame->c[i])->size);
+    } else if (frame->ctype[i] == EMPTY) {
       printf("%s┌", pad);
       for (int i = 0; i < 27; i++) {
         printf("─");
       }
       printf("\n%s│", pad);
       printf(" EMPTY\n");
-
-    } else if (frame->ctype[i] == NODE) {
-      struct heap_frame *c = frame->c[i];
-      memTreeTraverse(c, depth + 1);
+    } else if (frame->ctype[i] == FRAME) {
+      memTreeTraverse(frame->c[i], depth + 1);
     }
   }
 }
 
 void print_mem_tree(struct heap_header *heap) {
-  memTreeTraverse(heap->first, 0);
+  memTreeTraverse(heap->root, 0);
 }
 
 int next_free_index(struct heap_frame *f) {
   for (int i = 0; i < NODE_CHILDREN; i++) {
-    if (f->ctype[i] == EMPTY) {
+    if (f->ctype[i] == EMPTY /*|| f->ctype[i] == FREE_LEAF*/) {
       return i;
     }
   }
@@ -130,28 +147,28 @@ void *next_free_addr(struct heap_frame *f, int *pindex) {
     return (void *)f + sizeof(struct heap_frame);
   }
 
-  int last_child = next_child - 1;
+  int prev_child = next_child - 1;
 
-  struct heap_frame *rframe = f->c[last_child];
-
-  if (f->ctype[last_child] == LEAF) {
+  if (f->ctype[prev_child] == USED_LEAF || f->ctype[prev_child] == FREE_LEAF) {
     *pindex = next_child;
-    return (void *)rframe + rframe->size + sizeof(struct heap_frame);
+    struct heap_leaf *l = f->c[prev_child];
+    return (void *)l + l->size + sizeof(struct heap_leaf);
   }
 
-  return next_free_addr(rframe, pindex);
+  return next_free_addr(f->c[prev_child], pindex);
 }
 
-struct heap_frame *create_next_child(struct heap_frame *f, enum frame_type t) {
+void *create_next_child(struct heap_frame *f, enum frame_type t) {
   int pindex;
-  struct heap_frame *newf = (struct heap_frame *)next_free_addr(f, &pindex);
-  f->c[pindex] = newf;
+  void *n = next_free_addr(f, &pindex);
+
   f->ctype[pindex] = t;
-  return newf;
+  f->c[pindex] = n;
+
+  return f->c[pindex];
 }
 
-struct heap_frame *
-find_parent(struct heap_frame *r, struct heap_frame *f, int *cindex) {
+struct heap_frame *find_parent(struct heap_frame *r, void *f, int *cindex) {
   int i = 0;
 
   for (;;) {
@@ -160,7 +177,7 @@ find_parent(struct heap_frame *r, struct heap_frame *f, int *cindex) {
       return r;
     }
 
-    if ((void *)f < r->c[i] || i == NODE_CHILDREN - 1) {
+    if (f < r->c[i] || i == NODE_CHILDREN - 1) {
       r = r->c[i];
       i = 0;
       continue;
@@ -171,7 +188,7 @@ find_parent(struct heap_frame *r, struct heap_frame *f, int *cindex) {
 }
 
 void *snap_malloc(struct heap_header *heap, size_t n) {
-  struct heap_frame *parent = heap->first;
+  struct heap_frame *parent = heap->root;
 
   int free_index = next_free_index(parent);
 
@@ -181,50 +198,36 @@ void *snap_malloc(struct heap_header *heap, size_t n) {
   }
 
   if (free_index == NODE_CHILDREN - 1) {
-    struct heap_frame *link = create_next_child(parent, NODE);
-    heap->used += sizeof(struct heap_frame);
+    struct heap_frame *link = create_next_child(parent, FRAME);
     parent = link;
   }
 
-  struct heap_frame *target = create_next_child(parent, LEAF);
-  heap->used += sizeof(struct heap_frame);
+  struct heap_leaf *l = create_next_child(parent, USED_LEAF);
 
-  target->size = n;
+  l->size = n;
 
-  heap->used += n;
-
-  return (void *)target + sizeof(struct heap_frame);
-}
-
-void *snap_realloc(struct heap_header *heap, void *ptr, size_t n) {
-  struct heap_frame *frame =
-      (struct heap_frame *)(ptr - sizeof(struct heap_frame));
-
-  heap->used -= frame->size;
-  heap->used += n;
-
-  if (n < frame->size) {
-    memset(ptr + n, '-', frame->size - n);
-    return ptr;
-  }
-
-  void *result = snap_malloc(heap, n);
-  memmove(result, ptr, n);
-  return result;
+  return (void *)l + sizeof(struct heap_leaf);
 }
 
 void snap_free(struct heap_header *heap, void *ptr) {
-  struct heap_frame *frame =
-      (struct heap_frame *)(ptr - sizeof(struct heap_frame));
+  struct heap_leaf *l = (struct heap_leaf *)(ptr - sizeof(struct heap_leaf));
 
-  heap->used -= frame->size + sizeof(struct heap_frame);
+  int i;
+  struct heap_frame *p = find_parent(heap->root, l, &i);
+  assert(p->ctype[i] == USED_LEAF);
 
-  frame->type = NODE;
-  for (int i = 0; i < NODE_CHILDREN; i++) {
-    frame->child[i] = NULL;
-  }
+  p->ctype[i] = FREE_LEAF;
 
-  /*memset(frame, NULL, frame->size + sizeof(struct heap_frame));*/
+  memset(ptr, '-', l->size);
+}
+
+void *snap_realloc(struct heap_header *heap, void *ptr, size_t n) {
+  struct heap_leaf *l = (struct heap_leaf *)(ptr - sizeof(struct heap_leaf));
+
+  void *result = snap_malloc(heap, n);
+  memmove(result, ptr, n);
+  snap_free(heap, ptr);
+  return result;
 }
 
 void *lua_allocr(void *ud, void *ptr, size_t osize, size_t nsize) {
@@ -308,8 +311,8 @@ const char *lreader(lua_State *L, void *data, size_t *size) {
   return data;
 }
 
-void run_for(
-    struct heap_header *heap, lua_State *L, const char *code, char *result) {
+void run_for(struct heap_header *heap, lua_State *L, const char *code,
+             char *result) {
   assert(lua_gettop(L) == 0);
 
   int error;
@@ -359,6 +362,7 @@ int main(int argc, char *argv[]) {
 
   printf("sizeof(struct heap_header): %ld\n", sizeof(struct heap_header));
   printf("sizeof(struct heap_frame): %ld\n", sizeof(struct heap_frame));
+  printf("sizeof(struct heap_leaf): %ld\n", sizeof(struct heap_leaf));
 
   void *mem = open_db("./_db", ALLOC_BLOCK_SIZE);
 
@@ -371,11 +375,10 @@ int main(int argc, char *argv[]) {
   if (heap->v != 0xffca) {
     heap->v = 0xffca;
     heap->size = ALLOC_BLOCK_SIZE;
-    heap->used = sizeof(struct heap_header);
-    heap->first = mem + sizeof(struct heap_header);
 
-    heap->first->size = heap->size - heap->used - sizeof(struct heap_frame);
-    heap->first->type = NODE;
+    heap->root = mem + sizeof(struct heap_header);
+    heap->root->size =
+        heap->size - sizeof(struct heap_header) - sizeof(struct heap_frame);
 
     printf("CREATING LUA STATE\n");
     L = lua_newstate(lua_allocr, heap);
@@ -391,16 +394,12 @@ int main(int argc, char *argv[]) {
 
   char buff[1024];
 
-  int usedBefore = heap->used;
-
   if (argc == 2) {
     run_for(heap, L, argv[1], buff);
     printf("=> %s\n", buff);
   }
 
-  print_mem_tree(heap);
-
-  printf("%ld/%ld (%ld)\n", heap->used, heap->size, heap->used - usedBefore);
+  // print_mem_tree(heap);
 
   return 0;
 
