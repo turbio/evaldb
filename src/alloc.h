@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <stdint.h>
 
 #define NODE_CHILDREN 5
 
@@ -35,3 +36,5 @@ struct heap_frame {
 void *snap_malloc(struct heap_header *heap, size_t n);
 void snap_free(struct heap_header *heap, void *ptr);
 void *snap_realloc(struct heap_header *heap, void *ptr, size_t n);
+
+void print_mem_tree(struct heap_header *heap);

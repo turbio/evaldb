@@ -21,11 +21,12 @@
 
 #include <sys/personality.h>
 
-#include "alloc.h"
+#include "../alloc.h"
 
 #define ALLOC_BLOCK_SIZE (1000 * 1000)
 
 int log_alloc;
+const uintptr_t addr = 0x7fffff000000;
 
 void *open_db(const char *path, int size) {
   int fd = open(path, O_CREAT | O_RDWR, 0660);
@@ -40,7 +41,13 @@ void *open_db(const char *path, int size) {
     return NULL;
   }
 
-  void *mem = mmap(0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  void *mem = mmap(
+      (void *)addr,
+      size,
+      PROT_READ | PROT_WRITE,
+      MAP_SHARED | MAP_FIXED,
+      fd,
+      0);
   if (mem == MAP_FAILED) {
     printf("db map failed  %s\n", strerror(errno));
     return NULL;
@@ -217,8 +224,6 @@ int main(int argc, char *argv[]) {
     run_for(heap, L, argv[1], buff);
     printf("=> %s\n", buff);
   }
-
-  // print_mem_tree(heap);
 
   return 0;
 

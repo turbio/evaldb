@@ -1,4 +1,6 @@
-luaval
+/luaval
+/memi
+_db
 lua
 luac
 *.o

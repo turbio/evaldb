@@ -5,7 +5,7 @@
 
 #include "alloc.h"
 
-void memTreeTraverse(struct heap_frame *frame, int depth) {
+void mem_tree_traverse(struct heap_frame *frame, int depth) {
   char pad[1024];
   memset(pad, ' ', depth * 2);
   pad[depth * 2] = '\0';
@@ -48,13 +48,13 @@ void memTreeTraverse(struct heap_frame *frame, int depth) {
       printf("\n%s│", pad);
       printf(" EMPTY\n");
     } else if (frame->ctype[i] == FRAME) {
-      memTreeTraverse(frame->c[i], depth + 1);
+      mem_tree_traverse(frame->c[i], depth + 1);
     }
   }
 }
 
 void print_mem_tree(struct heap_header *heap) {
-  memTreeTraverse(heap->root, 0);
+  mem_tree_traverse(heap->root, 0);
 }
 
 int next_free_index(struct heap_frame *f) {
