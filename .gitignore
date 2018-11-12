@@ -1,3 +1,5 @@
 luaval
+lua
+luac
 *.o
 *.a
