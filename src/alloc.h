@@ -7,7 +7,7 @@
 
 struct heap_header {
   uint16_t v;
-  uint64_t size; // size includes self
+  size_t size; // size includes self
 
   struct heap_frame *root;
 

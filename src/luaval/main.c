@@ -23,12 +23,39 @@
 
 #include "../alloc.h"
 
-#define ALLOC_BLOCK_SIZE (1000 * 1000)
+#define _1_KB 1024
+#define _1_MB (_1_KB * 1024)
+#define _1_GB (_1_MB * 1024)
+
+#define ALLOC_BLOCK_SIZE (_1_GB * 1)
+
+#include <ucontext.h>
 
 int log_alloc;
-const uintptr_t addr = 0x7fffff000000;
+void *map_addr = (void *)0x0fffb0000000;
 
-void *open_db(const char *path, int size) {
+void handle_segv(int signum, siginfo_t *i, void *d) {
+  void *addr = i->si_addr;
+
+  if (addr < map_addr || map_addr >= map_addr + ALLOC_BLOCK_SIZE) {
+    printf("back access %p\n", i->si_addr);
+    exit(2);
+  }
+
+  int page_size = getpagesize();
+
+  void *page = (void *)((uintptr_t)addr & ~((uintptr_t)page_size - 1));
+
+  printf("! hit %p, marked %p-%p\n", addr, page, page + page_size);
+
+  int err = mprotect(page, page_size, PROT_READ | PROT_WRITE);
+  if (err != 0) {
+    printf("failed to mark write pages %s\n", strerror(errno));
+    exit(3);
+  }
+}
+
+void *open_db(const char *path, size_t size) {
   int fd = open(path, O_CREAT | O_RDWR, 0660);
   if (fd == -1) {
     printf("couldn't open db %s\n", strerror(errno));
@@ -41,13 +68,7 @@ void *open_db(const char *path, int size) {
     return NULL;
   }
 
-  void *mem = mmap(
-      (void *)addr,
-      size,
-      PROT_READ | PROT_WRITE,
-      MAP_SHARED | MAP_FIXED,
-      fd,
-      0);
+  void *mem = mmap(map_addr, size, PROT_READ, MAP_FIXED | MAP_SHARED, fd, 0);
   if (mem == MAP_FAILED) {
     printf("db map failed  %s\n", strerror(errno));
     return NULL;
@@ -137,8 +158,8 @@ const char *lreader(lua_State *L, void *data, size_t *size) {
   return data;
 }
 
-void run_for(
-    struct heap_header *heap, lua_State *L, const char *code, char *result) {
+void run_for(struct heap_header *heap, lua_State *L, const char *code,
+             char *result) {
   assert(lua_gettop(L) == 0);
 
   int error;
@@ -185,6 +206,11 @@ int main(int argc, char *argv[]) {
 
     execve("/proc/self/exe", argv, NULL);
   }
+
+  struct sigaction sa;
+  sa.sa_flags = SA_SIGINFO | SA_NODEFER;
+  sa.sa_sigaction = handle_segv;
+  sigaction(SIGSEGV, &sa, NULL);
 
   printf("sizeof(struct heap_header): %ld\n", sizeof(struct heap_header));
   printf("sizeof(struct heap_frame): %ld\n", sizeof(struct heap_frame));
