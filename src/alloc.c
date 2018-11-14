@@ -1,9 +1,105 @@
 #include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sched.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <sys/personality.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include "alloc.h"
+
+void handle_segv(int signum, siginfo_t *i, void *d) {
+  void *addr = i->si_addr;
+
+  if (addr < MAP_START_ADDR ||
+      MAP_START_ADDR >= MAP_START_ADDR + ALLOC_BLOCK_SIZE) {
+    printf("SEGFAULT %p\n", i->si_addr);
+    exit(2);
+  }
+
+  int page_size = getpagesize();
+
+  void *page = (void *)((uintptr_t)addr & ~((uintptr_t)page_size - 1));
+
+  printf("! hit %p, marked %p-%p\n", addr, page, page + page_size);
+
+  int err = mprotect(page, page_size, PROT_READ | PROT_WRITE);
+  if (err != 0) {
+    printf("failed to mark write pages %s\n", strerror(errno));
+    exit(3);
+  }
+}
+
+void *open_db(const char *path, size_t size) {
+  int fd = open(path, O_CREAT | O_RDWR, 0660);
+  if (fd == -1) {
+    printf("couldn't open db %s\n", strerror(errno));
+    return NULL;
+  }
+
+  int err = ftruncate(fd, size);
+  if (err == -1) {
+    printf("could not increase db size  %s\n", strerror(errno));
+    return NULL;
+  }
+
+  void *mem =
+      mmap(MAP_START_ADDR, size, PROT_READ, MAP_FIXED | MAP_SHARED, fd, 0);
+  if (mem == MAP_FAILED) {
+    printf("db map failed  %s\n", strerror(errno));
+    return NULL;
+  }
+
+  return mem;
+}
+
+struct heap_header *init_alloc(char *argv[], char *db_path) {
+  int pers = personality(0xffffffff);
+  if (pers == -1) {
+    printf("could not get personality %s", strerror(errno));
+    exit(1);
+  }
+
+  if (!(pers & ADDR_NO_RANDOMIZE)) {
+    if (personality(ADDR_NO_RANDOMIZE) == -1) {
+      printf("could not set personality %s", strerror(errno));
+      exit(1);
+    }
+
+    execve("/proc/self/exe", argv, NULL);
+  }
+
+  struct sigaction sa;
+
+  sa.sa_flags = SA_SIGINFO | SA_NODEFER;
+  sa.sa_sigaction = handle_segv;
+  sigaction(SIGSEGV, &sa, NULL);
+
+  void *mem = open_db(db_path, ALLOC_BLOCK_SIZE);
+
+  struct heap_header *heap = mem;
+
+  if (heap->v == 0) {
+    heap->v = 0xffca;
+    heap->size = ALLOC_BLOCK_SIZE;
+
+    heap->root = mem + sizeof(struct heap_header);
+    heap->root->size =
+        heap->size - sizeof(struct heap_header) - sizeof(struct heap_frame);
+  } else if (heap->v != 0xffca) {
+    printf("got a bad snapshot, expected version %d (expected) != %d (actual)",
+           0xffca, heap->v);
+    exit(1);
+  }
+
+  return heap;
+}
 
 void mem_tree_traverse(struct heap_frame *frame, int depth) {
   char pad[1024];
@@ -28,10 +124,8 @@ void mem_tree_traverse(struct heap_frame *frame, int depth) {
         printf("─");
       }
       printf("\n%s│", pad);
-      printf(
-          " L %p %ld b\n",
-          frame->c[i],
-          ((struct heap_leaf *)frame->c[i])->size);
+      printf(" L %p %ld b\n", frame->c[i],
+             ((struct heap_leaf *)frame->c[i])->size);
 
     } else if (frame->ctype[i] == FREE_LEAF) {
       printf("%s┌", pad);

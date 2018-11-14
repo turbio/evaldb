@@ -5,13 +5,21 @@
 
 #define NODE_CHILDREN 5
 
+#define _1_KB 1024
+#define _1_MB (_1_KB * 1024)
+#define _1_GB (_1_MB * 1024)
+
+#define ALLOC_BLOCK_SIZE (_1_MB * 1)
+
+#define MAP_START_ADDR ((void *)0x600000000000)
+
 struct heap_header {
   uint16_t v;
   size_t size; // size includes self
 
   struct heap_frame *root;
 
-  uintptr_t lua_state;
+  void *user_ptr;
 };
 
 enum frame_type {
@@ -36,5 +44,7 @@ struct heap_frame {
 void *snap_malloc(struct heap_header *heap, size_t n);
 void snap_free(struct heap_header *heap, void *ptr);
 void *snap_realloc(struct heap_header *heap, void *ptr, size_t n);
+
+struct heap_header *init_alloc(char *argv[], char *db_path);
 
 void print_mem_tree(struct heap_header *heap);

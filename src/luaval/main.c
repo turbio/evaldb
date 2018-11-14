@@ -1,81 +1,22 @@
-#include <errno.h>
-#include <fcntl.h>
-#include <malloc.h>
-#include <sched.h>
-#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <lauxlib.h>
 #include <lua.h>
+#include <lualib.h>
 
 #include <jansson.h>
 
 #include <assert.h>
 
-#include <sys/personality.h>
-
 #include "../alloc.h"
-
-#define _1_KB 1024
-#define _1_MB (_1_KB * 1024)
-#define _1_GB (_1_MB * 1024)
-
-#define ALLOC_BLOCK_SIZE (_1_GB * 1)
 
 #include <ucontext.h>
 
 int log_alloc;
-void *map_addr = (void *)0x0fffb0000000;
-
-void handle_segv(int signum, siginfo_t *i, void *d) {
-  void *addr = i->si_addr;
-
-  if (addr < map_addr || map_addr >= map_addr + ALLOC_BLOCK_SIZE) {
-    printf("back access %p\n", i->si_addr);
-    exit(2);
-  }
-
-  int page_size = getpagesize();
-
-  void *page = (void *)((uintptr_t)addr & ~((uintptr_t)page_size - 1));
-
-  printf("! hit %p, marked %p-%p\n", addr, page, page + page_size);
-
-  int err = mprotect(page, page_size, PROT_READ | PROT_WRITE);
-  if (err != 0) {
-    printf("failed to mark write pages %s\n", strerror(errno));
-    exit(3);
-  }
-}
-
-void *open_db(const char *path, size_t size) {
-  int fd = open(path, O_CREAT | O_RDWR, 0660);
-  if (fd == -1) {
-    printf("couldn't open db %s\n", strerror(errno));
-    return NULL;
-  }
-
-  int err = ftruncate(fd, size);
-  if (err == -1) {
-    printf("could not increase db size  %s\n", strerror(errno));
-    return NULL;
-  }
-
-  void *mem = mmap(map_addr, size, PROT_READ, MAP_FIXED | MAP_SHARED, fd, 0);
-  if (mem == MAP_FAILED) {
-    printf("db map failed  %s\n", strerror(errno));
-    return NULL;
-  }
-
-  return mem;
-}
 
 void *lua_allocr(void *ud, void *ptr, size_t osize, size_t nsize) {
   struct heap_header *heap = (struct heap_header *)ud;
@@ -191,67 +132,8 @@ abort:
   lua_gc(L, LUA_GCCOLLECT, 0);
 }
 
-int main(int argc, char *argv[]) {
-  int pers = personality(0xffffffff);
-  if (pers == -1) {
-    printf("could not get personality %s", strerror(errno));
-    return 1;
-  }
-
-  if (!(pers & ADDR_NO_RANDOMIZE)) {
-    if (personality(ADDR_NO_RANDOMIZE) == -1) {
-      printf("could not set personality %s", strerror(errno));
-      return 1;
-    }
-
-    execve("/proc/self/exe", argv, NULL);
-  }
-
-  struct sigaction sa;
-  sa.sa_flags = SA_SIGINFO | SA_NODEFER;
-  sa.sa_sigaction = handle_segv;
-  sigaction(SIGSEGV, &sa, NULL);
-
-  printf("sizeof(struct heap_header): %ld\n", sizeof(struct heap_header));
-  printf("sizeof(struct heap_frame): %ld\n", sizeof(struct heap_frame));
-  printf("sizeof(struct heap_leaf): %ld\n", sizeof(struct heap_leaf));
-
-  void *mem = open_db("./_db", ALLOC_BLOCK_SIZE);
-
-  struct heap_header *heap = (struct heap_header *)mem;
-
-  lua_State *L;
-
-  log_alloc = 1;
-
-  if (heap->v != 0xffca) {
-    heap->v = 0xffca;
-    heap->size = ALLOC_BLOCK_SIZE;
-
-    heap->root = mem + sizeof(struct heap_header);
-    heap->root->size =
-        heap->size - sizeof(struct heap_header) - sizeof(struct heap_frame);
-
-    printf("CREATING LUA STATE\n");
-    L = lua_newstate(lua_allocr, heap);
-    heap->lua_state = (uintptr_t)L;
-    printf("CREATED LUA STATE at %p\n", L);
-  } else {
-    printf("LOADING LUA STATE\n");
-    L = (lua_State *)(heap->lua_state);
-    printf("LOADED LUA STATE at %p\n", L);
-  }
-
-  lua_setallocf(L, lua_allocr, heap);
-
+void run_tests(struct heap_header *heap, lua_State *L) {
   char buff[1024];
-
-  if (argc == 2) {
-    run_for(heap, L, argv[1], buff);
-    printf("=> %s\n", buff);
-  }
-
-  return 0;
 
   run_for(heap, L, "return 1+1", buff);
   assert(strcmp(buff, "2") == 0);
@@ -269,6 +151,67 @@ int main(int argc, char *argv[]) {
   run_for(heap, L, "v = v + 1", buff);
   run_for(heap, L, "return v", buff);
   assert(strcmp(buff, "3") == 0);
+}
+
+int main(int argc, char *argv[]) {
+  if (argc < 2) {
+    printf("usage: %s <db file> [code]\n", *argv);
+    exit(1);
+  }
+
+  struct heap_header *heap = init_alloc(argv, argv[1]);
+
+  lua_State *L;
+
+  log_alloc = 1;
+
+  if (heap->user_ptr) {
+    printf("LOADING LUA STATE\n");
+    L = heap->user_ptr;
+    printf("LOADED LUA STATE at %p\n", L);
+  } else {
+    printf("CREATING LUA STATE\n");
+    L = lua_newstate(lua_allocr, heap);
+    heap->user_ptr = L;
+
+    // be careful what we expose from the standard library, it has all sorts
+    // of unsafe stuff built right in.
+
+    // the base library has some unsafe stuff
+    /*luaL_requiref(L, "_G", luaopen_base, 1);*/
+    /*lua_pop(L, 1);*/
+
+    luaL_requiref(L, "string", luaopen_string, 1);
+    lua_pop(L, 1);
+
+    luaL_requiref(L, "table", luaopen_table, 1);
+    lua_pop(L, 1);
+
+    luaL_requiref(L, "math", luaopen_math, 1);
+    lua_pop(L, 1);
+
+    luaL_requiref(L, "coroutine", luaopen_coroutine, 1);
+    lua_pop(L, 1);
+
+    luaL_requiref(L, "bit32", luaopen_bit32, 1);
+    lua_pop(L, 1);
+
+    luaL_requiref(L, "utf8", luaopen_utf8, 1);
+    lua_pop(L, 1);
+
+    printf("CREATED LUA STATE at %p\n", L);
+  }
+
+  if (lua_getallocf(L, NULL) != lua_allocr) {
+    lua_setallocf(L, lua_allocr, heap);
+  }
+
+  char buff[1024];
+
+  if (argc == 3) {
+    run_for(heap, L, argv[2], buff);
+    printf("=> %s\n", buff);
+  }
 
   return 0;
 }
