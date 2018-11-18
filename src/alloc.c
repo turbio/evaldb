@@ -19,7 +19,7 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
 
   if (addr < MAP_START_ADDR ||
       MAP_START_ADDR >= MAP_START_ADDR + ALLOC_BLOCK_SIZE) {
-    printf("SEGFAULT %p\n", i->si_addr);
+    fprintf(stderr, "SEGFAULT %p\n", i->si_addr);
     exit(2);
   }
 
@@ -27,11 +27,11 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
 
   void *page = (void *)((uintptr_t)addr & ~((uintptr_t)page_size - 1));
 
-  printf("! hit %p, marked %p-%p\n", addr, page, page + page_size);
+  fprintf(stderr, "! hit %p, marked %p-%p\n", addr, page, page + page_size);
 
   int err = mprotect(page, page_size, PROT_READ | PROT_WRITE);
   if (err != 0) {
-    printf("failed to mark write pages %s\n", strerror(errno));
+    fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
     exit(3);
   }
 }
@@ -39,20 +39,20 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
 void *open_db(const char *path, size_t size) {
   int fd = open(path, O_CREAT | O_RDWR, 0660);
   if (fd == -1) {
-    printf("couldn't open db %s\n", strerror(errno));
+    fprintf(stderr, "couldn't open db %s\n", strerror(errno));
     return NULL;
   }
 
   int err = ftruncate(fd, size);
   if (err == -1) {
-    printf("could not increase db size  %s\n", strerror(errno));
+    fprintf(stderr, "could not increase db size  %s\n", strerror(errno));
     return NULL;
   }
 
   void *mem =
       mmap(MAP_START_ADDR, size, PROT_READ, MAP_FIXED | MAP_SHARED, fd, 0);
   if (mem == MAP_FAILED) {
-    printf("db map failed  %s\n", strerror(errno));
+    fprintf(stderr, "db map failed  %s\n", strerror(errno));
     return NULL;
   }
 
@@ -62,13 +62,13 @@ void *open_db(const char *path, size_t size) {
 struct heap_header *init_alloc(char *argv[], char *db_path) {
   int pers = personality(0xffffffff);
   if (pers == -1) {
-    printf("could not get personality %s", strerror(errno));
+    fprintf(stderr, "could not get personality %s", strerror(errno));
     exit(1);
   }
 
   if (!(pers & ADDR_NO_RANDOMIZE)) {
     if (personality(ADDR_NO_RANDOMIZE) == -1) {
-      printf("could not set personality %s", strerror(errno));
+      fprintf(stderr, "could not set personality %s", strerror(errno));
       exit(1);
     }
 
@@ -93,8 +93,9 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
     heap->root->size =
         heap->size - sizeof(struct heap_header) - sizeof(struct heap_frame);
   } else if (heap->v != 0xffca) {
-    printf("got a bad snapshot, expected version %d (expected) != %d (actual)",
-           0xffca, heap->v);
+    fprintf(stderr,
+            "got a bad snapshot, expected version %d (expected) != %d (actual)",
+            0xffca, heap->v);
     exit(1);
   }
 

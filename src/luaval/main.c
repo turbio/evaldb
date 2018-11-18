@@ -27,7 +27,7 @@ void *lua_allocr(void *ud, void *ptr, size_t osize, size_t nsize) {
     }
 
     if (log_alloc) {
-      printf("   FREE %p %ld -> %ld\n", ptr, osize, nsize);
+      fprintf(stderr, "   FREE %p %ld -> %ld\n", ptr, osize, nsize);
     }
 
     snap_free(heap, ptr);
@@ -36,14 +36,14 @@ void *lua_allocr(void *ud, void *ptr, size_t osize, size_t nsize) {
 
   if (ptr) {
     if (log_alloc) {
-      printf("REALLOC %p %ld -> %ld\n", ptr, osize, nsize);
+      fprintf(stderr, "REALLOC %p %ld -> %ld\n", ptr, osize, nsize);
     }
 
     return snap_realloc(heap, ptr, nsize);
   }
 
   if (log_alloc) {
-    printf("  ALLOC %ld\n", nsize);
+    fprintf(stderr, "  ALLOC %ld\n", nsize);
   }
 
   void *addr = snap_malloc(heap, nsize);
@@ -105,7 +105,7 @@ void run_for(struct heap_header *heap, lua_State *L, const char *code,
 
   int error;
 
-  printf("evaling: \"%s\"\n", code);
+  fprintf(stderr, "evaling: \"%s\"\n", code);
 
   did_read = 0;
   error = lua_load(L, lreader, (void *)code, "eval", "t");
@@ -155,7 +155,7 @@ void run_tests(struct heap_header *heap, lua_State *L) {
 
 int main(int argc, char *argv[]) {
   if (argc < 2) {
-    printf("usage: %s <db file> [code]\n", *argv);
+    fprintf(stderr, "usage: %s <db file> [code]\n", *argv);
     exit(1);
   }
 
@@ -166,11 +166,11 @@ int main(int argc, char *argv[]) {
   log_alloc = 1;
 
   if (heap->user_ptr) {
-    printf("LOADING LUA STATE\n");
+    fprintf(stderr, "LOADING LUA STATE\n");
     L = heap->user_ptr;
-    printf("LOADED LUA STATE at %p\n", L);
+    fprintf(stderr, "LOADED LUA STATE at %p\n", L);
   } else {
-    printf("CREATING LUA STATE\n");
+    fprintf(stderr, "CREATING LUA STATE\n");
     L = lua_newstate(lua_allocr, heap);
     heap->user_ptr = L;
 
@@ -199,18 +199,19 @@ int main(int argc, char *argv[]) {
     luaL_requiref(L, "utf8", luaopen_utf8, 1);
     lua_pop(L, 1);
 
-    printf("CREATED LUA STATE at %p\n", L);
+    fprintf(stderr, "CREATED LUA STATE at %p\n", L);
   }
 
   if (lua_getallocf(L, NULL) != lua_allocr) {
     lua_setallocf(L, lua_allocr, heap);
   }
 
-  char buff[1024];
+  char buff[4096];
 
   if (argc == 3) {
     run_for(heap, L, argv[2], buff);
-    printf("=> %s\n", buff);
+    write(1, buff, strlen(buff));
+    write(1, "\n", 1);
   }
 
   return 0;
