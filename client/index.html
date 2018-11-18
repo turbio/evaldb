@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>evald</title>
+  <script type="text/javascript" src="http://livejs.com/live.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style type="text/css">
+    body {
+      font-family: monospace;
+      font-size: 12px;
+    }
+
+    .query {
+      border: solid 1px black;
+      display: flex;
+    }
+
+    .query>textarea {
+      border: none;
+      border-right: 1px solid black;
+      width: 100%;
+      height: 2em;
+      font-family: monospace;
+      font-size: 12px;
+      background: none;
+      resize: vertical;
+    }
+
+    .query.readonly {
+      background: #eee;
+    }
+
+    .query>button {
+      font-family: monospace;
+      font-size: 12px;
+      background: none;
+      border: none;
+    }
+
+    .query:not(.readonly)>button {
+      cursor: pointer;
+    }
+
+    .query:not(.readonly)>button:hover {
+      background: black;
+      color: white;
+    }
+
+    .timeline {
+      position: relative;
+      border-left: solid black 1px;
+      padding: 1em;
+    }
+
+    .entry {
+      margin-bottom: 1em;
+    }
+
+    .entry::before {
+      position: absolute;
+      left: -6px;
+      border: solid 2px white;
+      content: "";
+      color: #000;
+      width: 7px;
+      height: 7px;
+      background: black;
+      /*
+      text-shadow: -1px -1px 0 #fff,
+      1px -1px 0 #fff,
+      -1px 1px 0 #fff,
+      1px 1px 0 #fff;
+      */
+    }
+  </style>
+</head>
+
+<body>
+  <div class="timeline">
+    <div class="entry">
+      initial state
+    </div>
+    <div class="entry query">
+      <textarea class="query-data"></textarea>
+      <button class="go-query">go</button>
+    </div>
+  </div>
+  <script src="https://code.jquery.com/jquery-3.3.1.min.js" integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8=" crossorigin="anonymous"></script>
+  <script>
+    function query(q, cb) {
+      console.log('query ->', q);
+      cb('=> ' + q)
+    }
+
+    function handleSubmit(entry) {
+      var btn = entry.children('.go-query');
+      var q = entry.children('.query-data');
+
+      btn.addClass('readonly')
+      entry.addClass('readonly');
+
+      q.attr('readonly', true);
+      query(q.val(), function(r) {
+        entry.parent().append($('<div class="entry output"></div>').text(r))
+        entry.parent().append($(`
+            <div class="entry query">
+              <textarea class="query-data"></textarea>
+              <button class="go-query">go</button>
+            </div>
+        `))
+      });
+    }
+
+    $(document).on('click', '.go-query:not(.readonly)', function() {
+      handleSubmit($(this).parent());
+    });
+
+    $(document).on('keypress', '.query:not(.readonly)', function(ev) {
+      if (ev.ctrlKey && ev.key === "Enter") {
+        $(this).blur();
+        handleSubmit($(this));
+      }
+    });
+  </script>
+</body>
+
+</html>
