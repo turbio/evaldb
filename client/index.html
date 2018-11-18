@@ -4,7 +4,6 @@
 <head>
   <meta charset="utf-8" />
   <title>evald</title>
-  <script type="text/javascript" src="http://livejs.com/live.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style type="text/css">
     body {
@@ -21,7 +20,6 @@
       border: none;
       border-right: 1px solid black;
       width: 100%;
-      height: 2em;
       font-family: monospace;
       font-size: 12px;
       background: none;
@@ -83,15 +81,16 @@
       initial state
     </div>
     <div class="entry query">
-      <textarea class="query-data"></textarea>
+      <textarea class="query-data" autofocus rows="2"></textarea>
       <button class="go-query">go</button>
     </div>
   </div>
-  <script src="https://code.jquery.com/jquery-3.3.1.min.js" integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8=" crossorigin="anonymous"></script>
+  <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
   <script>
-    function query(q, cb) {
-      console.log('query ->', q);
-      cb('=> ' + q)
+    function query(query, cb) {
+      $.post('/eval', {query}, function(data, status) {
+        cb('' + data)
+      })
     }
 
     function handleSubmit(entry) {
@@ -100,27 +99,38 @@
 
       btn.addClass('readonly')
       entry.addClass('readonly');
+      q.addClass('readonly');
 
       q.attr('readonly', true);
       query(q.val(), function(r) {
         entry.parent().append($('<div class="entry output"></div>').text(r))
-        entry.parent().append($(`
+
+        var newEntry = $(`
             <div class="entry query">
-              <textarea class="query-data"></textarea>
+              <textarea class="query-data" rows="2"></textarea>
               <button class="go-query">go</button>
             </div>
-        `))
+        `)
+        entry.parent().append(newEntry)
+        newEntry.children('.query-data').focus();
       });
     }
+
+    $(document).on('input', '.query-data', function() {
+      var lines = $(this).val().split('\n').length;
+      if ($(this).attr('rows') < lines) {
+        $(this).attr('rows', lines);
+      }
+    });
 
     $(document).on('click', '.go-query:not(.readonly)', function() {
       handleSubmit($(this).parent());
     });
 
-    $(document).on('keypress', '.query:not(.readonly)', function(ev) {
+    $(document).on('keypress', '.query-data:not(.readonly)', function(ev) {
       if (ev.ctrlKey && ev.key === "Enter") {
         $(this).blur();
-        handleSubmit($(this));
+        handleSubmit($(this).parent());
       }
     });
   </script>
