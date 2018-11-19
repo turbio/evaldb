@@ -1,9 +1,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <sys/wait.h>
-#include <unistd.h>
-
 #include <lauxlib.h>
 #include <lua.h>
 #include <lualib.h>
@@ -13,8 +10,6 @@
 #include <assert.h>
 
 #include "../alloc.h"
-
-#include <ucontext.h>
 
 int log_alloc;
 
