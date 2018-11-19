@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="utf-8" />
-  <title>evald</title>
+  <title>evaldb</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style type="text/css">
     body {
@@ -133,7 +133,7 @@
           c = $(`<div class="timeline"></div>`).append(err);
         } else {
           c = $('<div class="entry result"></div>')
-                .text(JSON.stringify(result))
+                .text('= ' + JSON.stringify(result.object, null, 2))
         }
 
         entry.parent().append(c)

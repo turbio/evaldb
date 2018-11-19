@@ -33,10 +33,13 @@ memi: src/alloc.o src/memi/main.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 luaval: src/alloc.o src/luaval/main.o ./vendor/lua-5.3.5/src/liblua.a
-	$(CC) $(CFLAGS) $(LUACFLAGS) $^ $(LDFLAGS) $(LUALDFLAGS) -o $@
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(LUALDFLAGS) -o $@
 
 ./vendor/lua-5.3.5/src/liblua.a:
 	 cd ./vendor/lua-5.3.5 && $(MAKE) linux
+
+src/luaval/main.o: src/luaval/main.c
+	$(CC) $(CFLAGS) $(LUACFLAGS) -o $@ -c $<
 
 %.o: %.c
 	$(CC) $(CFLAGS) -o $@ -c $<

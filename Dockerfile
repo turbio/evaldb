@@ -24,6 +24,7 @@ FROM golang:1.11
 
 RUN apt-get update
 RUN apt-get install -y libjansson-dev
+RUN apt-get install -y libreadline-dev
 
 RUN mkdir -p /go/src/github.com/turbio/evaldb
 

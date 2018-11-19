@@ -1,13 +1,13 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <lauxlib.h>
-#include <lua.h>
-#include <lualib.h>
-
 #include <jansson.h>
 
 #include <assert.h>
+
+#include <lauxlib.h>
+#include <lua.h>
+#include <lualib.h>
 
 #include "../alloc.h"
 
@@ -46,7 +46,7 @@ void *lua_allocr(void *ud, void *ptr, size_t osize, size_t nsize) {
   return addr;
 }
 
-void as_json(lua_State *L, int index, char *str, size_t *len) {
+json_t *as_json(lua_State *L, int index) {
   json_t *v = NULL;
 
   switch (lua_type(L, index)) {
@@ -73,18 +73,11 @@ void as_json(lua_State *L, int index, char *str, size_t *len) {
     break;
 
   case LUA_TTABLE:
-    strncpy(str, "\"TODO\"", strlen("\"TODO\"") + 1);
+    v = json_object();
     break;
   }
 
-  if (v == NULL) {
-    strncpy(str, "\"bad type\"", strlen("\"bad type\"") + 1);
-    return;
-  }
-
-  size_t s = json_dumpb(v, str, 1024, JSON_ENCODE_ANY);
-  str[s] = 0;
-  *len = s;
+  return v;
 }
 
 int did_read = 0;
@@ -105,7 +98,7 @@ int run_for(
     struct heap_header *heap,
     lua_State *L,
     const char *code,
-    char *result,
+    json_t **result,
     char *errmsg) {
   assert(lua_gettop(L) == 0);
 
@@ -128,9 +121,7 @@ int run_for(
     goto abort;
   }
 
-  size_t l = 0;
-
-  as_json(L, 1, result, &l);
+  *result = as_json(L, 1);
   lua_pop(L, 1);
   assert(lua_gettop(L) == 0);
 
@@ -138,27 +129,6 @@ abort:
   lua_gc(L, LUA_GCCOLLECT, 0);
 
   return !!error;
-}
-
-void run_tests(struct heap_header *heap, lua_State *L) {
-  char buff[1024];
-
-  run_for(heap, L, "return 1+1", buff, buff);
-  assert(strcmp(buff, "2") == 0);
-
-  run_for(heap, L, "return 1+1.0", buff, buff);
-  assert(strcmp(buff, "2.0") == 0);
-
-  run_for(heap, L, "return 'hello\\nworld!'", buff, buff);
-  assert(strcmp(buff, "\"hello\\nworld!\"") == 0);
-
-  run_for(heap, L, "v = 1", buff, buff);
-  run_for(heap, L, "return v", buff, buff);
-  assert(strcmp(buff, "1") == 0);
-  run_for(heap, L, "v = v + 1", buff, buff);
-  run_for(heap, L, "v = v + 1", buff, buff);
-  run_for(heap, L, "return v", buff, buff);
-  assert(strcmp(buff, "3") == 0);
 }
 
 int main(int argc, char *argv[]) {
@@ -221,9 +191,16 @@ int main(int argc, char *argv[]) {
   if (argv[2][0] != '-') {
     char buff[4096];
 
-    run_for(heap, L, argv[2], buff, buff);
-    fputs(buff, stdout);
-    fputs("\n", stdout);
+    json_t *r;
+
+    if (run_for(heap, L, argv[2], &r, buff)) {
+      fputs("error:", stdout);
+      fputs(buff, stdout);
+      fputs("\n", stdout);
+    } else {
+      fputs(json_dumps(r, JSON_ENCODE_ANY), stdout);
+      fputs("\n", stdout);
+    }
     return 0;
   }
 
@@ -254,16 +231,18 @@ int main(int argc, char *argv[]) {
 
     const char *code_str = json_string_value(code);
 
-    char outbuff[4096];
+    char errbuff[4096];
 
-    int err = run_for(heap, L, code_str, outbuff, outbuff);
+    json_t *result;
+
+    int err = run_for(heap, L, code_str, &result, errbuff);
 
     json_t *qr = json_object();
 
     if (err) {
-      json_object_set(qr, "error", json_string(outbuff));
+      json_object_set(qr, "error", json_string(errbuff));
     } else {
-      json_object_set(qr, "object", json_string(outbuff));
+      json_object_set(qr, "object", result);
     }
 
     const char *r_str = json_dumps(qr, 0);
