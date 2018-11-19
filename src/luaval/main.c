@@ -46,7 +46,11 @@ void *lua_allocr(void *ud, void *ptr, size_t osize, size_t nsize) {
   return addr;
 }
 
-json_t *as_json(lua_State *L, int index) {
+json_t *as_json(lua_State *L, int index, int depth) {
+  if (depth > 5) {
+    return json_string("!max depth!");
+  }
+
   json_t *v = NULL;
 
   switch (lua_type(L, index)) {
@@ -72,9 +76,67 @@ json_t *as_json(lua_State *L, int index) {
     v = json_null();
     break;
 
-  case LUA_TTABLE:
-    v = json_object();
+  case LUA_TTABLE: {
+    int ordered = 1;
+
+    lua_pushnil(L);
+    while (lua_next(L, index) != 0) {
+      if (lua_type(L, -2) != LUA_TNUMBER || lua_tointeger(L, -2) != ordered) {
+        ordered = -1;
+        lua_pop(L, 2);
+        break;
+      }
+
+      ordered++;
+
+      lua_pop(L, 1);
+    }
+
+    if (ordered == -1 || ordered == 1) {
+      v = json_object();
+
+      lua_pushnil(L);
+      while (lua_next(L, index) != 0) {
+        fprintf(
+            stderr,
+            "%s - %s\n",
+            lua_typename(L, lua_type(L, -2)),
+            lua_typename(L, lua_type(L, -1)));
+
+        const char *key;
+
+        if (lua_type(L, -2) == LUA_TSTRING) {
+          key = lua_tostring(L, -2);
+        } else if (lua_type(L, -2) == LUA_TNUMBER) {
+          lua_pushvalue(L, -2);
+          key = lua_tostring(L, -1);
+          lua_pop(L, 1);
+        } else {
+          lua_pop(L, 1);
+          continue;
+        }
+
+        json_object_set(v, key, as_json(L, lua_gettop(L), depth + 1));
+        lua_pop(L, 1);
+      }
+    } else {
+      v = json_array();
+
+      lua_pushnil(L);
+      while (lua_next(L, index) != 0) {
+        json_array_append_new(v, as_json(L, lua_gettop(L), depth + 1));
+        lua_pop(L, 1);
+      }
+    }
     break;
+  }
+  default: {
+    char b[] = "!type \0        ";
+    strncat(b, lua_typename(L, lua_type(L, -1)), 8);
+    strcat(b, "!");
+    v = json_string(b);
+    break;
+  }
   }
 
   return v;
@@ -121,7 +183,7 @@ int run_for(
     goto abort;
   }
 
-  *result = as_json(L, 1);
+  *result = as_json(L, 1, 0);
   lua_pop(L, 1);
   assert(lua_gettop(L) == 0);
 

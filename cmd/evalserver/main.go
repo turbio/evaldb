@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,6 +28,67 @@ type queryResult struct {
 	Object interface{} `json:"object"`
 	Error  string      `json:"error"`
 	Cold   bool        `json:"cold"`
+}
+
+type evaler struct {
+	db   string
+	proc *os.Process
+	in   io.Writer
+	out  io.Reader
+
+	sync.Mutex
+}
+
+var evalers = []*evaler{}
+var elock = sync.RWMutex{}
+
+func newEvaler(db string) (*evaler, error) {
+	cmd := exec.Command("./luaval", "__"+db, "-")
+	cmd.Stderr = os.Stderr
+
+	stdin, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+
+	err := cmd.Start()
+	if err != nil {
+		return nil, err
+	}
+
+	return &evaler{
+		Mutex: sync.Mutex{},
+		db:    db,
+		proc:  cmd.Process,
+		in:    stdin,
+		out:   stdout,
+	}, nil
+}
+
+func acquireEvaler(db string) (*evaler, bool, error) {
+	elock.RLock()
+	for _, e := range evalers {
+		if e.db == db {
+			elock.RUnlock()
+			e.Lock()
+			return e, false, nil
+		}
+	}
+	elock.RUnlock()
+
+	e, err := newEvaler(db)
+	if err != nil {
+		return nil, false, err
+	}
+
+	elock.Lock()
+	evalers = append(evalers, e)
+	elock.Unlock()
+
+	e.Lock()
+	return e, true, nil
+}
+
+func (e *evaler) release() {
+	e.Unlock()
 }
 
 func must(err error) {
@@ -89,37 +152,29 @@ func eval(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
 	defer cancel()
 
-	var buff []byte
-
-	cmd := exec.Command("./luaval", "__db1", "-")
-	cmd.Stderr = os.Stderr
-
-	stdin, _ := cmd.StdinPipe()
-	stdout, _ := cmd.StdoutPipe()
-
-	qbuff, err := json.Marshal(q)
+	e, fresh, err := acquireEvaler("default")
 	if err != nil {
-		log.Println(err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return
+		panic(err)
 	}
 
+	defer e.release()
+
 	go func() {
-		stdin.Write(qbuff)
-		stdin.Write([]byte{'\n'})
+		qbuff, err := json.Marshal(q)
+		if err != nil {
+			panic(err)
+		}
+
+		e.in.Write(qbuff)
+		e.in.Write([]byte{'\n'})
 	}()
 
 	ran := make(chan struct{})
 
+	var buff []byte
+
 	go func() {
-		err := cmd.Start()
-
-		if err != nil {
-			log.Println("error:", err)
-		}
-
-		scan := bufio.NewScanner(stdout)
+		scan := bufio.NewScanner(e.out)
 		scan.Scan()
 
 		buff = scan.Bytes()
@@ -129,7 +184,6 @@ func eval(w http.ResponseWriter, r *http.Request) {
 
 	select {
 	case <-ctx.Done():
-		cmd.Process.Kill()
 		<-ran
 
 		result, err := json.Marshal(&queryResult{
@@ -152,6 +206,8 @@ func eval(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(string(buff) + "\n" + err.Error()))
 			return
 		}
+
+		qr.Cold = fresh
 
 		normalized, err := json.Marshal(&qr)
 		if err != nil {
