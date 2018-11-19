@@ -69,6 +69,16 @@ func parseQuery(w http.ResponseWriter, r *http.Request) (*query, bool) {
 }
 
 func eval(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set(
+		"Access-Control-Allow-Methods",
+		"POST, GET, OPTIONS, PUT, DELETE",
+	)
+
+	if r.Method == "HEAD" || r.Method == "OPTIONS" {
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestSize)
 
 	q, ok := parseQuery(w, r)

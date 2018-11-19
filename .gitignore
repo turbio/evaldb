@@ -1,5 +1,6 @@
 /luaval
 /memi
+/evalserver
 _db
 lua
 luac
