@@ -46,14 +46,34 @@
       color: white;
     }
 
+    .initial-msg {
+      padding-top: 1em;
+    }
+
     .timeline {
       position: relative;
       border-left: solid black 1px;
-      padding: 1em;
+      padding-left: 12px;
+    }
+
+    .timeline::before {
+      content: "";
+      position: absolute;
+      left: -13px;
+      right: 0;
+      width: 13px;
+      border-top: 1px solid black;
     }
 
     .entry {
       margin-bottom: 1em;
+      margin-top: 1em;
+    }
+
+    .entry.error {
+      background: red;
+      color: white;
+      padding: 0.5em;
     }
 
     .entry::before {
@@ -72,51 +92,64 @@
       1px 1px 0 #fff;
       */
     }
+
+    .error.entry::before {
+      background: red;
+    }
   </style>
 </head>
 
 <body>
   <div class="timeline">
-    <div class="entry">
+    <div class="entry initial-msg">
       initial state
     </div>
     <div class="entry query">
-      <textarea class="query-data" autofocus rows="2"></textarea>
+      <textarea class="query-code" autofocus rows="2"></textarea>
       <button class="go-query">go</button>
     </div>
   </div>
   <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
   <script>
-    function query(query, cb) {
-      $.post('/eval', {query}, function(data, status) {
-        cb('' + data)
+    function query(code, cb) {
+      $.post('/eval', {code}, function(data, status) {
+        cb(data)
       })
     }
 
     function handleSubmit(entry) {
       var btn = entry.children('.go-query');
-      var q = entry.children('.query-data');
+      var q = entry.children('.query-code');
 
       btn.addClass('readonly')
       entry.addClass('readonly');
       q.addClass('readonly');
 
       q.attr('readonly', true);
-      query(q.val(), function(r) {
-        entry.parent().append($('<div class="entry output"></div>').text(r))
+      query(q.val(), function(result) {
+        var c;
+        if (result.error) {
+          var err = $('<div class="entry error"></div>').text(result.error);
+          c = $(`<div class="timeline"></div>`).append(err);
+        } else {
+          c = $('<div class="entry result"></div>')
+                .text(JSON.stringify(result))
+        }
+
+        entry.parent().append(c)
 
         var newEntry = $(`
             <div class="entry query">
-              <textarea class="query-data" rows="2"></textarea>
+              <textarea class="query-code" rows="2"></textarea>
               <button class="go-query">go</button>
             </div>
         `)
         entry.parent().append(newEntry)
-        newEntry.children('.query-data').focus();
+        newEntry.children('.query-code').focus();
       });
     }
 
-    $(document).on('input', '.query-data', function() {
+    $(document).on('input', '.query-code', function() {
       var lines = $(this).val().split('\n').length;
       if ($(this).attr('rows') < lines) {
         $(this).attr('rows', lines);
@@ -127,7 +160,7 @@
       handleSubmit($(this).parent());
     });
 
-    $(document).on('keypress', '.query-data:not(.readonly)', function(ev) {
+    $(document).on('keypress', '.query-code:not(.readonly)', function(ev) {
       if (ev.ctrlKey && ev.key === "Enter") {
         $(this).blur();
         handleSubmit($(this).parent());

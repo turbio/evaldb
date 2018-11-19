@@ -16,10 +16,14 @@ SRCS       := $(shell find $(SRCDIR) -type f -name "*.c")
 OBJS       := $(patsubst %.c,%.o,$(SRCS))
 
 EVALERS    := luaval
+SERVER     := evalserver
 
 .PHONY: all clean
 
-all: $(EVALERS) memi
+all: $(EVALERS) $(SERVER) memi
+
+evalserver: ./cmd/evalserver/*
+	go build ./cmd/evalserver
 
 clean:
 	$(RM) $(EVALERS) $(OBJS)
