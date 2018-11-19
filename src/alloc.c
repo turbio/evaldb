@@ -62,13 +62,13 @@ void *open_db(const char *path, size_t size) {
 struct heap_header *init_alloc(char *argv[], char *db_path) {
   int pers = personality(0xffffffff);
   if (pers == -1) {
-    fprintf(stderr, "could not get personality %s", strerror(errno));
+    fprintf(stderr, "could not get personality %s\n", strerror(errno));
     exit(1);
   }
 
   if (!(pers & ADDR_NO_RANDOMIZE)) {
     if (personality(ADDR_NO_RANDOMIZE) == -1) {
-      fprintf(stderr, "could not set personality %s", strerror(errno));
+      fprintf(stderr, "could not set personality %s\n", strerror(errno));
       exit(1);
     }
 
@@ -93,9 +93,11 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
     heap->root->size =
         heap->size - sizeof(struct heap_header) - sizeof(struct heap_frame);
   } else if (heap->v != 0xffca) {
-    fprintf(stderr,
-            "got a bad snapshot, expected version %d (expected) != %d (actual)",
-            0xffca, heap->v);
+    fprintf(
+        stderr,
+        "got a bad snapshot, expected version %d (expected) != %d (actual)",
+        0xffca,
+        heap->v);
     exit(1);
   }
 
@@ -125,8 +127,10 @@ void mem_tree_traverse(struct heap_frame *frame, int depth) {
         printf("─");
       }
       printf("\n%s│", pad);
-      printf(" L %p %ld b\n", frame->c[i],
-             ((struct heap_leaf *)frame->c[i])->size);
+      printf(
+          " L %p %ld b\n",
+          frame->c[i],
+          ((struct heap_leaf *)frame->c[i])->size);
 
     } else if (frame->ctype[i] == FREE_LEAF) {
       printf("%s┌", pad);
