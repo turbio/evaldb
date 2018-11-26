@@ -16,18 +16,23 @@ import (
 	"time"
 )
 
+const useDB = "default"
+
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
 
 type query struct {
 	Code string `json:"code"`
+	Seq  string `json:"seq"`
 }
 
 type queryResult struct {
-	Object interface{} `json:"object"`
-	Error  string      `json:"error"`
-	Cold   bool        `json:"cold"`
+	Object   interface{} `json:"object"`
+	Error    string      `json:"error"`
+	Warm     bool        `json:"warm"`
+	WallTime uint64      `json:"walltime"`
+	Seq      string      `json:"seq"`
 }
 
 type evaler struct {
@@ -43,7 +48,7 @@ var evalers = []*evaler{}
 var elock = sync.RWMutex{}
 
 func newEvaler(db string) (*evaler, error) {
-	cmd := exec.Command("./luaval", "__"+db, "-")
+	cmd := exec.Command("./luaval", "./db/__"+db, "-")
 	cmd.Stderr = os.Stderr
 
 	stdin, _ := cmd.StdinPipe()
@@ -126,7 +131,10 @@ func parseQuery(w http.ResponseWriter, r *http.Request) (*query, bool) {
 		return nil, false
 	}
 
-	q := &query{Code: r.FormValue("code")}
+	q := &query{
+		Code: r.FormValue("code"),
+		Seq:  r.FormValue("seq"),
+	}
 
 	return q, true
 }
@@ -152,12 +160,19 @@ func eval(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
 	defer cancel()
 
-	e, fresh, err := acquireEvaler("default")
+	e, fresh, err := acquireEvaler(useDB)
 	if err != nil {
 		panic(err)
 	}
 
 	defer e.release()
+
+	seq, err := logQuery(useDB, q)
+	if err != nil {
+		panic(err)
+	}
+
+	startAt := time.Now()
 
 	go func() {
 		qbuff, err := json.Marshal(q)
@@ -182,46 +197,49 @@ func eval(w http.ResponseWriter, r *http.Request) {
 		close(ran)
 	}()
 
+	var result queryResult
+
 	select {
 	case <-ctx.Done():
+		e.proc.Kill()
 		<-ran
 
-		result, err := json.Marshal(&queryResult{
+		result = queryResult{
 			Error: "execution timed out after 1 second",
-		})
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
-			return
 		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(result)
-
 	case <-ran:
-		var qr queryResult
-		err := json.Unmarshal(buff, &qr)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(string(buff) + "\n" + err.Error()))
-			return
+		if err := json.Unmarshal(buff, &result); err != nil {
+			result.Error = fmt.Sprintf(
+				"evaler send a bad response:\n%v\ngot: %#v",
+				err,
+				string(buff),
+			)
+			break
 		}
-
-		qr.Cold = fresh
-
-		normalized, err := json.Marshal(&qr)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(normalized)
 	}
+
+	result.Warm = !fresh
+	result.WallTime = uint64(time.Since(startAt))
+	result.Seq = seq
+
+	logResult(useDB, &result)
+
+	remarsh, err := json.Marshal(&result)
+	if err != nil {
+		panic(err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(remarsh)
 }
 
 func main() {
+	openDB()
+	err := createDB(useDB)
+	if err != nil {
+		log.Println("info:", err)
+	}
+
 	http.HandleFunc("/eval", eval)
 	http.Handle("/", http.FileServer(http.Dir("./client")))
 
