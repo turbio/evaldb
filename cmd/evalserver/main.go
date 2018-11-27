@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-const useDB = "default"
+const defaultDB = "default"
 
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -51,10 +51,17 @@ func newEvaler(db string) (*evaler, error) {
 	cmd := exec.Command("./luaval", "./db/__"+db, "-")
 	cmd.Stderr = os.Stderr
 
-	stdin, _ := cmd.StdinPipe()
-	stdout, _ := cmd.StdoutPipe()
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
 
-	err := cmd.Start()
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+
+	err = cmd.Start()
 	if err != nil {
 		return nil, err
 	}
@@ -160,14 +167,14 @@ func eval(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
 	defer cancel()
 
-	e, fresh, err := acquireEvaler(useDB)
+	e, fresh, err := acquireEvaler(defaultDB)
 	if err != nil {
 		panic(err)
 	}
 
 	defer e.release()
 
-	seq, err := logQuery(useDB, q)
+	seq, err := logQuery(defaultDB, q)
 	if err != nil {
 		panic(err)
 	}
@@ -222,7 +229,7 @@ func eval(w http.ResponseWriter, r *http.Request) {
 	result.WallTime = uint64(time.Since(startAt))
 	result.Seq = seq
 
-	logResult(useDB, &result)
+	logResult(defaultDB, &result)
 
 	remarsh, err := json.Marshal(&result)
 	if err != nil {
@@ -235,7 +242,7 @@ func eval(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	openDB()
-	err := createDB(useDB)
+	err := createDB(defaultDB)
 	if err != nil {
 		log.Println("info:", err)
 	}
