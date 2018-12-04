@@ -46,5 +46,3 @@ void snap_free(struct heap_header *heap, void *ptr);
 void *snap_realloc(struct heap_header *heap, void *ptr, size_t n);
 
 struct heap_header *init_alloc(char *argv[], char *db_path);
-
-void print_mem_tree(struct heap_header *heap);
