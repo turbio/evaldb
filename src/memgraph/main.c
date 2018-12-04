@@ -27,7 +27,6 @@ void print_node(void *addr, long size, const char *state) {
   printf(" width=.1");
   printf(" height=.1");
   printf(" shape=box");
-  printf(" fontsize=9");
   printf(" color=\"#888888\"");
   if (!strcmp(state, "NODE")) {
     printf(" fillcolor=\"#aaaaff\"");
@@ -37,11 +36,11 @@ void print_node(void *addr, long size, const char *state) {
     printf(" fillcolor=\"#aaffaa\"");
   }
   printf("]");
-  printf("\"%p\" -> table:slot%d\n", addr, n);
+  /*printf("\"%p\" -> table:slot%d\n", addr, n);*/
   n++;
 }
 
-void mem_tree_traverse(struct heap_frame *frame, int depth) {
+void print_tree_nodes(struct heap_frame *frame) {
   /*printf("N %p %08ld\n", frame, frame->size);*/
   print_node(frame, frame->size, "NODE");
 
@@ -58,7 +57,69 @@ void mem_tree_traverse(struct heap_frame *frame, int depth) {
     } else if (frame->ctype[i] == EMPTY) {
       print_node(0, 0, "EMPTY");
     } else if (frame->ctype[i] == FRAME) {
-      mem_tree_traverse(frame->c[i], depth + 1);
+      print_tree_nodes(frame->c[i]);
+    }
+  }
+}
+
+void print_table_node(void *addr, long size, const char *state) {
+  printf("<tr>\n");
+  printf("<td ");
+  printf("port=\"%p\" ", addr);
+
+  if (!strcmp(state, "NODE")) {
+    printf("bgcolor=\"#aaaaff\" ");
+    printf("height=\"%ld\" ", sizeof(struct heap_frame));
+    printf(">%p<br/>+%ld</td>\n", addr, sizeof(struct heap_frame));
+  } else if (!strcmp(state, "FREE")) {
+    printf("bgcolor=\"#ffaaaa\" ");
+    printf("height=\"%ld\" ", size + sizeof(struct heap_leaf));
+    printf(">%p<br/>%ld + %ld</td>\n", addr, size, sizeof(struct heap_leaf));
+  } else if (!strcmp(state, "USED")) {
+    printf("bgcolor=\"#aaffaa\" ");
+    printf("height=\"%ld\" ", size + sizeof(struct heap_leaf));
+    printf(">%p<br/>%ld + %ld</td>\n", addr, size, sizeof(struct heap_leaf));
+  } else {
+    printf(">%p</td>\n", addr);
+  }
+  printf("</tr>\n");
+}
+
+void table_nodes(struct heap_frame *frame) {
+  // printf("N %p %08ld\n", frame, frame->size);
+  print_table_node(frame, frame->size, "NODE");
+
+  for (int i = 0; i < NODE_CHILDREN; i++) {
+    // printf("\"%p\" -> \"%p\"", frame, frame->c[i]);
+    // printf("[arrowsize=.5]\n");
+
+    if (frame->ctype[i] == USED_LEAF) {
+      struct heap_leaf *leaf = (struct heap_leaf *)frame->c[i];
+      print_table_node(leaf, leaf->size, "USED");
+    } else if (frame->ctype[i] == FREE_LEAF) {
+      struct heap_leaf *leaf = (struct heap_leaf *)frame->c[i];
+      print_table_node(leaf, leaf->size, "FREE");
+    } else if (frame->ctype[i] == EMPTY) {
+      print_table_node(0, 0, "EMPTY");
+    } else if (frame->ctype[i] == FRAME) {
+      table_nodes(frame->c[i]);
+    }
+  }
+}
+
+void table_node_connections(struct heap_frame *frame) {
+  printf("\"%p\" -> table:\"%p\"", frame, frame);
+  printf("[arrowsize=.5]\n");
+
+  for (int i = 0; i < NODE_CHILDREN; i++) {
+    if (frame->ctype[i] == USED_LEAF) {
+      printf("\"%p\" -> table:\"%p\"", frame->c[i], frame->c[i]);
+      printf("[arrowsize=.5]\n");
+    } else if (frame->ctype[i] == FREE_LEAF) {
+      printf("\"%p\" -> table:\"%p\"", frame->c[i], frame->c[i]);
+      printf("[arrowsize=.5]\n");
+    } else if (frame->ctype[i] == FRAME) {
+      table_node_connections(frame->c[i]);
     }
   }
 }
@@ -66,22 +127,19 @@ void mem_tree_traverse(struct heap_frame *frame, int depth) {
 void print_mem_tree(struct heap_header *heap) {
   printf("digraph \"memory\" {\n");
 
-  /*printf("rankdir=LR\n");*/
+  printf("rankdir=LR\n");
   printf("nodesep=0\n");
-  printf("ranksep=0.25\n");
-  printf("node [shape=plain style=filled]\n");
-
-  mem_tree_traverse(heap->root, 0);
+  printf("ranksep=0\n");
+  printf("node [shape=plain style=filled fontsize=9]\n");
 
   printf("table [label=<\n");
   printf("<table border=\"0\" cellborder=\"1\" cellspacing=\"0\">\n");
-  printf("<tr>\n");
-  for (int i = 0; i < 100; i++) {
-    printf("<td port=\"slot%05d\">%05d</td>\n", i, i);
-  }
-  printf("</tr>\n");
+  table_nodes(heap->root);
   printf("</table>\n");
   printf(">]\n");
+
+  table_node_connections(heap->root);
+  print_tree_nodes(heap->root);
 
   printf("}\n");
 }
