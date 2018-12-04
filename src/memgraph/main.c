@@ -17,10 +17,15 @@
 
 #include "../alloc.h"
 
+int n = 0;
+
 void print_node(void *addr, long size, const char *state) {
   printf("\"%p\" ", addr);
   printf("[");
-  printf(" label=\"%p\\nsize: %ld\\nstate: %s\"", addr, size, state);
+  /*printf(" label=\"%p\\nsize: %ld\\nstate: %s\"", addr, size, state);*/
+  printf(" label=\"\"");
+  printf(" width=.1");
+  printf(" height=.1");
   printf(" shape=box");
   printf(" fontsize=9");
   printf(" color=\"#888888\"");
@@ -32,6 +37,8 @@ void print_node(void *addr, long size, const char *state) {
     printf(" fillcolor=\"#aaffaa\"");
   }
   printf("]");
+  printf("\"%p\" -> table:slot%d\n", addr, n);
+  n++;
 }
 
 void mem_tree_traverse(struct heap_frame *frame, int depth) {
@@ -39,7 +46,8 @@ void mem_tree_traverse(struct heap_frame *frame, int depth) {
   print_node(frame, frame->size, "NODE");
 
   for (int i = 0; i < NODE_CHILDREN; i++) {
-    printf("\"%p\" -> \"%p\"\n", frame, frame->c[i]);
+    printf("\"%p\" -> \"%p\"", frame, frame->c[i]);
+    printf("[arrowsize=.5]\n");
 
     if (frame->ctype[i] == USED_LEAF) {
       struct heap_leaf *leaf = (struct heap_leaf *)frame->c[i];
@@ -57,8 +65,24 @@ void mem_tree_traverse(struct heap_frame *frame, int depth) {
 
 void print_mem_tree(struct heap_header *heap) {
   printf("digraph \"memory\" {\n");
-  printf("node [style=filled]\n");
+
+  /*printf("rankdir=LR\n");*/
+  printf("nodesep=0\n");
+  printf("ranksep=0.25\n");
+  printf("node [shape=plain style=filled]\n");
+
   mem_tree_traverse(heap->root, 0);
+
+  printf("table [label=<\n");
+  printf("<table border=\"0\" cellborder=\"1\" cellspacing=\"0\">\n");
+  printf("<tr>\n");
+  for (int i = 0; i < 100; i++) {
+    printf("<td port=\"slot%05d\">%05d</td>\n", i, i);
+  }
+  printf("</tr>\n");
+  printf("</table>\n");
+  printf(">]\n");
+
   printf("}\n");
 }
 
