@@ -13,13 +13,15 @@
 
 #define MAP_START_ADDR ((void *)0x600000000000)
 
+#define NUM_REVISIONS 100
+
 struct heap_header {
   uint16_t v;
   size_t size; // size includes self
 
-  struct heap_frame *root;
-
   void *user_ptr;
+
+  struct heap_frame *revs[NUM_REVISIONS];
 };
 
 enum frame_type {
@@ -46,5 +48,3 @@ void snap_free(struct heap_header *heap, void *ptr);
 void *snap_realloc(struct heap_header *heap, void *ptr, size_t n);
 
 struct heap_header *init_alloc(char *argv[], char *db_path);
-
-void print_mem_tree(struct heap_header *heap);

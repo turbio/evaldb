@@ -1,0 +1,109 @@
+body {
+  margin: 0;
+  padding: 0;
+  line-height: 1;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+input {
+  border: solid 1px black;
+  padding: 0.5em;
+}
+
+.query {
+  border: solid 1px black;
+  display: flex;
+}
+
+.query > textarea {
+  margin: 0;
+  border: none;
+  border-right: 1px solid black;
+  width: 100%;
+  font-family: monospace;
+  font-size: 12px;
+  background: none;
+  resize: vertical;
+  line-height: 1;
+}
+
+.query.readonly {
+  background: lightgrey;
+}
+
+.query > button {
+  font-family: monospace;
+  font-size: 12px;
+  background: none;
+  border: none;
+}
+
+.query:not(.readonly) > button {
+  cursor: pointer;
+}
+
+.query:not(.readonly) > button:hover {
+  background: black;
+  color: white;
+}
+
+.initial-msg {
+  padding-top: 1em;
+}
+
+.timeline {
+  position: relative;
+  border-left: solid black 1px;
+  padding-left: 12px;
+}
+
+.timeline:not(.fork) {
+  margin: 0 1em 0 1em;
+}
+
+.timeline.fork::before {
+  content: "";
+  position: absolute;
+  left: -13px;
+  right: 0;
+  width: 13px;
+  border-top: 1px solid black;
+}
+
+.entry {
+  margin-bottom: 1em;
+}
+
+.entry.result {
+  white-space: pre;
+}
+
+.entry.error {
+  background: red;
+  color: white;
+  padding: 0.5em;
+  white-space: pre;
+}
+
+.entry::before {
+  position: absolute;
+  left: -6px;
+  border: solid 2px white;
+  content: "";
+  color: black;
+  width: 7px;
+  height: 7px;
+  background: black;
+}
+
+.error.entry::before {
+  background: red;
+}
+
+.headbar {
+  border-bottom: solid 1px black;
+  padding: 1em;
+  background: black;
+  color: white;
+}

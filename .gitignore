@@ -1,8 +1,11 @@
 /luaval
-/memi
+/memgraph
 /evalserver
+/db
 _db
 lua
 luac
 *.o
 *.a
+mem.dot
+mem.svg

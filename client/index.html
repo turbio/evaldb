@@ -5,105 +5,13 @@
   <meta charset="utf-8" />
   <title>evaldb</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style type="text/css">
-    body {
-      font-family: monospace;
-      font-size: 12px;
-    }
-
-    .query {
-      border: solid 1px black;
-      display: flex;
-    }
-
-    .query>textarea {
-      border: none;
-      border-right: 1px solid black;
-      width: 100%;
-      font-family: monospace;
-      font-size: 12px;
-      background: none;
-      resize: vertical;
-    }
-
-    .query.readonly {
-      background: #eee;
-    }
-
-    .query>button {
-      font-family: monospace;
-      font-size: 12px;
-      background: none;
-      border: none;
-    }
-
-    .query:not(.readonly)>button {
-      cursor: pointer;
-    }
-
-    .query:not(.readonly)>button:hover {
-      background: black;
-      color: white;
-    }
-
-    .initial-msg {
-      padding-top: 1em;
-    }
-
-    .timeline {
-      position: relative;
-      border-left: solid black 1px;
-      padding-left: 12px;
-    }
-
-    .timeline::before {
-      content: "";
-      position: absolute;
-      left: -13px;
-      right: 0;
-      width: 13px;
-      border-top: 1px solid black;
-    }
-
-    .entry {
-      margin-bottom: 1em;
-      margin-top: 1em;
-    }
-
-    .entry.result {
-      white-space: pre;
-    }
-
-    .entry.error {
-      background: red;
-      color: white;
-      padding: 0.5em;
-    }
-
-    .entry::before {
-      position: absolute;
-      left: -6px;
-      border: solid 2px white;
-      content: "";
-      color: #000;
-      width: 7px;
-      height: 7px;
-      background: black;
-      /*
-      text-shadow: -1px -1px 0 #fff,
-      1px -1px 0 #fff,
-      -1px 1px 0 #fff,
-      1px 1px 0 #fff;
-      */
-    }
-
-    .error.entry::before {
-      background: red;
-    }
-  </style>
+  <link rel="stylesheet" href="/style.css" type="text/css" media="all">
 </head>
 
 <body>
+  <div class="headbar">
+    db: <input type="text" value="default" />
+  </div>
   <div class="timeline">
     <div class="entry initial-msg">
       initial state
@@ -114,63 +22,7 @@
     </div>
   </div>
   <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
-  <script>
-    function query(code, cb) {
-      $.post('/eval', {code}, function(data, status) {
-        cb(data)
-      })
-    }
-
-    function handleSubmit(entry) {
-      var btn = entry.children('.go-query');
-      var q = entry.children('.query-code');
-
-      btn.addClass('readonly')
-      entry.addClass('readonly');
-      q.addClass('readonly');
-
-      q.attr('readonly', true);
-      query(q.val(), function(result) {
-        var c;
-        if (result.error) {
-          var err = $('<div class="entry error"></div>').text(result.error);
-          c = $(`<div class="timeline"></div>`).append(err);
-        } else {
-          c = $('<div class="entry result"></div>')
-                .text('= ' + JSON.stringify(result.object, null, 2))
-        }
-
-        entry.parent().append(c)
-
-        var newEntry = $(`
-            <div class="entry query">
-              <textarea class="query-code" rows="2"></textarea>
-              <button class="go-query">go</button>
-            </div>
-        `)
-        entry.parent().append(newEntry)
-        newEntry.children('.query-code').focus();
-      });
-    }
-
-    $(document).on('input', '.query-code', function() {
-      var lines = $(this).val().split('\n').length;
-      if ($(this).attr('rows') < lines) {
-        $(this).attr('rows', lines);
-      }
-    });
-
-    $(document).on('click', '.go-query:not(.readonly)', function() {
-      handleSubmit($(this).parent());
-    });
-
-    $(document).on('keypress', '.query-code:not(.readonly)', function(ev) {
-      if (ev.ctrlKey && ev.key === "Enter") {
-        $(this).blur();
-        handleSubmit($(this).parent());
-      }
-    });
-  </script>
+  <script src="/script.js" charset="utf-8"></script>
 </body>
 
 </html>

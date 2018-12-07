@@ -20,7 +20,7 @@ SERVER     := evalserver
 
 .PHONY: all clean
 
-all: $(EVALERS) $(SERVER) memi
+all: $(EVALERS) $(SERVER) memgraph
 
 evalserver: ./cmd/evalserver/*
 	go build ./cmd/evalserver
@@ -29,7 +29,7 @@ clean:
 	$(RM) $(EVALERS) $(OBJS)
 	 cd ./vendor/lua-5.3.5 && $(MAKE) clean
 
-memi: src/alloc.o src/memi/main.o
+memgraph: src/alloc.o src/memgraph/main.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 luaval: src/alloc.o src/luaval/main.o ./vendor/lua-5.3.5/src/liblua.a
