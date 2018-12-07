@@ -14,6 +14,14 @@
 
 #include "alloc.h"
 
+struct heap_frame *follow_rev(struct heap_header *heap, int rev) {
+  while (!heap->revs[rev]) {
+    rev--;
+  }
+
+  return heap->revs[rev];
+}
+
 void handle_segv(int signum, siginfo_t *i, void *d) {
   void *addr = i->si_addr;
 
@@ -93,9 +101,8 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
     heap->root->size =
         heap->size - sizeof(struct heap_header) - sizeof(struct heap_frame);
   } else if (heap->v != 0xffca) {
-    fprintf(stderr,
-            "got a bad snapshot, expected version %d (expected) != %d (actual)",
-            0xffca, heap->v);
+    fprintf(stderr, "got a bad snapshot, %d (expected) != %d (actual)", 0xffca,
+            heap->v);
     exit(1);
   }
 

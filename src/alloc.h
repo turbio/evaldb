@@ -13,13 +13,15 @@
 
 #define MAP_START_ADDR ((void *)0x600000000000)
 
+#define NUM_REVISIONS 100
+
 struct heap_header {
   uint16_t v;
   size_t size; // size includes self
 
-  struct heap_frame *root;
-
   void *user_ptr;
+
+  struct heap_frame *revs[NUM_REVISIONS];
 };
 
 enum frame_type {

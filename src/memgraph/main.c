@@ -22,10 +22,12 @@ int n = 0;
 void print_node(void *addr, long size, const char *state) {
   printf("\"%p\" ", addr);
   printf("[");
-  /*printf(" label=\"%p\\nsize: %ld\\nstate: %s\"", addr, size, state);*/
+  printf(" tooltip=\"%p\\nsize: %ld\\nstate: %s\"", addr, size, state);
   printf(" label=\"\"");
   printf(" width=.1");
   printf(" height=.1");
+  printf(" style=filled");
+  printf(" fontsize=9");
   printf(" shape=box");
   printf(" color=\"#888888\"");
   if (!strcmp(state, "NODE")) {
@@ -36,17 +38,15 @@ void print_node(void *addr, long size, const char *state) {
     printf(" fillcolor=\"#aaffaa\"");
   }
   printf("]");
-  /*printf("\"%p\" -> table:slot%d\n", addr, n);*/
   n++;
 }
 
 void print_tree_nodes(struct heap_frame *frame) {
-  /*printf("N %p %08ld\n", frame, frame->size);*/
   print_node(frame, frame->size, "NODE");
 
   for (int i = 0; i < NODE_CHILDREN; i++) {
     printf("\"%p\" -> \"%p\"", frame, frame->c[i]);
-    printf("[arrowsize=.5]\n");
+    printf("[arrowsize=.25]\n");
 
     if (frame->ctype[i] == USED_LEAF) {
       struct heap_leaf *leaf = (struct heap_leaf *)frame->c[i];
@@ -69,16 +69,16 @@ void print_table_node(void *addr, long size, const char *state) {
 
   if (!strcmp(state, "NODE")) {
     printf("bgcolor=\"#aaaaff\" ");
-    printf("height=\"%ld\" ", sizeof(struct heap_frame));
-    printf(">%p<br/>+%ld</td>\n", addr, sizeof(struct heap_frame));
+    printf("height=\"%ld\" ", sizeof(struct heap_frame) / 10);
+    printf(">%p +%ld</td>\n", addr, sizeof(struct heap_frame));
   } else if (!strcmp(state, "FREE")) {
     printf("bgcolor=\"#ffaaaa\" ");
-    printf("height=\"%ld\" ", size + sizeof(struct heap_leaf));
-    printf(">%p<br/>%ld + %ld</td>\n", addr, size, sizeof(struct heap_leaf));
+    printf("height=\"%ld\" ", (size + sizeof(struct heap_leaf)) / 10);
+    printf(">%p %ld + %ld</td>\n", addr, size, sizeof(struct heap_leaf));
   } else if (!strcmp(state, "USED")) {
     printf("bgcolor=\"#aaffaa\" ");
-    printf("height=\"%ld\" ", size + sizeof(struct heap_leaf));
-    printf(">%p<br/>%ld + %ld</td>\n", addr, size, sizeof(struct heap_leaf));
+    printf("height=\"%ld\" ", (size + sizeof(struct heap_leaf)) / 10);
+    printf(">%p %ld + %ld</td>\n", addr, size, sizeof(struct heap_leaf));
   } else {
     printf(">%p</td>\n", addr);
   }
@@ -86,13 +86,9 @@ void print_table_node(void *addr, long size, const char *state) {
 }
 
 void table_nodes(struct heap_frame *frame) {
-  // printf("N %p %08ld\n", frame, frame->size);
   print_table_node(frame, frame->size, "NODE");
 
   for (int i = 0; i < NODE_CHILDREN; i++) {
-    // printf("\"%p\" -> \"%p\"", frame, frame->c[i]);
-    // printf("[arrowsize=.5]\n");
-
     if (frame->ctype[i] == USED_LEAF) {
       struct heap_leaf *leaf = (struct heap_leaf *)frame->c[i];
       print_table_node(leaf, leaf->size, "USED");
@@ -124,24 +120,42 @@ void table_node_connections(struct heap_frame *frame) {
   }
 }
 
-void print_mem_tree(struct heap_header *heap) {
-  printf("digraph \"memory\" {\n");
-
-  printf("rankdir=LR\n");
+void render_tree(struct heap_header *heap) {
   printf("nodesep=0\n");
-  printf("ranksep=0\n");
-  printf("node [shape=plain style=filled fontsize=9]\n");
+  printf("ranksep=0.1\n");
 
+  print_tree_nodes(heap->root);
+}
+
+void render_mem_table(struct heap_header *heap) {
   printf("table [label=<\n");
   printf("<table border=\"0\" cellborder=\"1\" cellspacing=\"0\">\n");
   table_nodes(heap->root);
   printf("</table>\n");
-  printf(">]\n");
+  printf("> style=filled fontsize=9 shape=plain]\n");
+}
 
-  table_node_connections(heap->root);
-  print_tree_nodes(heap->root);
+void find_bounds(struct heap_frame *frame, size_t *min, size_t *max) {
+  if (frame->size > *max) {
+    *max = frame->size;
+  }
+  if (frame->size < *min) {
+    *min = frame->size;
+  }
 
-  printf("}\n");
+  for (int i = 0; i < NODE_CHILDREN; i++) {
+    if (frame->ctype[i] == USED_LEAF || frame->ctype[i] == FREE_LEAF) {
+      struct heap_leaf *l = frame->c[i];
+      if (l->size > *max) {
+        *max = l->size;
+      }
+      if (l->size < *min) {
+        *min = l->size;
+      }
+    } else if (frame->ctype[i] == FRAME) {
+      find_bounds(frame->c[i], min, max);
+    }
+  }
 }
 
 int main(int argc, char *argv[]) {
@@ -157,14 +171,17 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-  print_mem_tree(heap);
+  size_t min, max;
+  min = SIZE_MAX;
+  max = 0;
+  find_bounds(heap->root, &min, &max);
 
-  // int fd = open("/proc/self/maps", O_RDONLY);
+  printf("digraph \"memory\" {\n");
+  // printf("rankdir=LR\n");
+  // render_mem_table(heap);
+  render_tree(heap);
 
-  // char buff[102400];
-  // read(fd, buff, 102400);
-
-  // printf("buff:\n%s", buff);
+  printf("}\n");
 
   return 0;
 }
