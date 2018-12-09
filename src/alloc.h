@@ -21,6 +21,7 @@ struct heap_header {
 
   void *user_ptr;
 
+  int rev;
   struct heap_frame *revs[NUM_REVISIONS];
 };
 
