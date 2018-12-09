@@ -67,6 +67,10 @@ void *open_db(const char *path, size_t size) {
   return mem;
 }
 
+struct heap_frame *root(struct heap_header *heap) {
+  return heap->revs[heap->rev];
+}
+
 struct heap_header *init_alloc(char *argv[], char *db_path) {
   int pers = personality(0xffffffff);
   if (pers == -1) {
@@ -97,8 +101,10 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
     heap->v = 0xffca;
     heap->size = ALLOC_BLOCK_SIZE;
 
-    heap->root = mem + sizeof(struct heap_header);
-    heap->root->size =
+    heap->rev = 0;
+
+    heap->revs[heap->rev] = mem + sizeof(struct heap_header);
+    root(heap)->size =
         heap->size - sizeof(struct heap_header) - sizeof(struct heap_frame);
   } else if (heap->v != 0xffca) {
     fprintf(stderr, "got a bad snapshot, %d (expected) != %d (actual)", 0xffca,
@@ -171,7 +177,7 @@ struct heap_frame *find_parent(struct heap_frame *r, void *f, int *cindex) {
 }
 
 void *snap_malloc(struct heap_header *heap, size_t n) {
-  struct heap_frame *parent = heap->root;
+  struct heap_frame *parent = root(heap);
 
   int free_index = next_free_index(parent);
 
@@ -196,7 +202,7 @@ void snap_free(struct heap_header *heap, void *ptr) {
   struct heap_leaf *l = (struct heap_leaf *)(ptr - sizeof(struct heap_leaf));
 
   int i;
-  struct heap_frame *p = find_parent(heap->root, l, &i);
+  struct heap_frame *p = find_parent(root(heap), l, &i);
   assert(p->ctype[i] == USED_LEAF);
 
   p->ctype[i] = FREE_LEAF;
