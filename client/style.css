@@ -82,7 +82,6 @@ input {
 .entry.error {
   background: red;
   color: white;
-  padding: 0.5em;
   white-space: pre;
 }
 
@@ -99,6 +98,13 @@ input {
 
 .error.entry::before {
   background: red;
+}
+
+.status-line {
+  background: black;
+  color: white;
+  padding: 0.25em;
+  margin-top: 0.5em;
 }
 
 .headbar {

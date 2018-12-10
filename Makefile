@@ -41,5 +41,5 @@ luaval: src/alloc.o src/luaval/main.o ./vendor/lua-5.3.5/src/liblua.a
 src/luaval/main.o: src/luaval/main.c
 	$(CC) $(CFLAGS) $(LUACFLAGS) -o $@ -c $<
 
-%.o: %.c
+%.o: %.c %.h
 	$(CC) $(CFLAGS) -o $@ -c $<

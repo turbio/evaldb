@@ -297,7 +297,17 @@ int main(int argc, char *argv[]) {
 
     json_t *result;
 
+    char errstr[100];
+    if (verify(heap, errstr)) {
+      fprintf(stderr, "heap verify failed: %s\n", errstr);
+      exit(1);
+    }
+
+    begin_mut(heap);
+
     int err = run_for(heap, L, code_str, &result, errbuff);
+
+    commit(heap);
 
     json_t *qr = json_object();
 
