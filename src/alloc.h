@@ -56,6 +56,5 @@ struct heap_frame *root(struct heap_header *heap);
 
 struct heap_header *init_alloc(char *argv[], char *db_path);
 
-int verify(struct heap_header *heap, char *errstr);
 void commit(struct heap_header *heap);
 void begin_mut(struct heap_header *heap);

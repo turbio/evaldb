@@ -246,6 +246,8 @@ int main(int argc, char *argv[]) {
     lua_setallocf(L, lua_allocr, heap);
   }
 
+  commit(heap);
+
   if (argc < 3) {
     return 0;
   }
@@ -255,6 +257,8 @@ int main(int argc, char *argv[]) {
 
     json_t *r;
 
+    begin_mut(heap);
+
     if (run_for(heap, L, argv[2], &r, buff)) {
       fputs("error:", stdout);
       fputs(buff, stdout);
@@ -263,6 +267,9 @@ int main(int argc, char *argv[]) {
       fputs(json_dumps(r, JSON_ENCODE_ANY), stdout);
       fputs("\n", stdout);
     }
+
+    commit(heap);
+
     return 0;
   }
 
@@ -296,12 +303,6 @@ int main(int argc, char *argv[]) {
     char errbuff[4096];
 
     json_t *result;
-
-    char errstr[100];
-    if (verify(heap, errstr)) {
-      fprintf(stderr, "heap verify failed: %s\n", errstr);
-      exit(1);
-    }
 
     begin_mut(heap);
 
