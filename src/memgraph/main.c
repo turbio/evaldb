@@ -124,13 +124,13 @@ void render_tree(struct heap_header *heap) {
   printf("nodesep=0\n");
   printf("ranksep=0.1\n");
 
-  print_tree_nodes(heap->root);
+  print_tree_nodes(root(heap));
 }
 
 void render_mem_table(struct heap_header *heap) {
   printf("table [label=<\n");
   printf("<table border=\"0\" cellborder=\"1\" cellspacing=\"0\">\n");
-  table_nodes(heap->root);
+  table_nodes(root(heap));
   printf("</table>\n");
   printf("> style=filled fontsize=9 shape=plain]\n");
 }
@@ -174,7 +174,7 @@ int main(int argc, char *argv[]) {
   size_t min, max;
   min = SIZE_MAX;
   max = 0;
-  find_bounds(heap->root, &min, &max);
+  find_bounds(root(heap), &min, &max);
 
   printf("digraph \"memory\" {\n");
   // printf("rankdir=LR\n");

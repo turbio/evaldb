@@ -14,30 +14,25 @@ function handleSubmit(entry) {
 
   q.attr('readonly', true);
   query(q.val(), function(result) {
-    var c;
+    var resultEntry;
     if (result.error) {
-      var err = $('<div class="entry error"></div>').text(result.error);
-      c = $('<div class="timeline fork"></div>').append(err);
+      var resultEntry = $('<div class="entry error"></div>').text(result.error);
+      entry
+        .parent()
+        .append($('<div class="timeline fork"></div>').append(resultEntry));
     } else {
-      c = $('<div class="entry result"></div>').text(
+      resultEntry = $('<div class="entry result"></div>').text(
         '= ' + JSON.stringify(result.object, null, 2),
       );
+      entry.parent().append(resultEntry);
     }
 
-    entry
-      .parent()
-      .append(
-        $('<div class="entry"></div>').text(result.walltime / 1000000 + 'ms'),
-      );
-    entry
-      .parent()
-      .append(
-        $('<div class="entry"></div>').text(result.warm ? 'warm' : 'cold'),
-      );
-    entry
-      .parent()
-      .append($('<div class="entry"></div>').text('seq: ' + result.seq));
-    entry.parent().append(c);
+    var statusLine = $('<div class="status-line"></div>');
+    statusLine.text(
+      result.walltime / 1e6 + 'ms' + ' | ' + (result.warm ? 'warm' : 'cold'),
+    );
+
+    resultEntry.append(statusLine);
 
     var newEntry = $(
       '<div class="entry query">' +

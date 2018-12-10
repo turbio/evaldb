@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define NODE_CHILDREN 5
+#define NODE_CHILDREN 10
 
 #define _1_KB 1024
 #define _1_MB (_1_KB * 1024)
@@ -21,7 +21,9 @@ struct heap_header {
 
   void *user_ptr;
 
-  int rev;
+  int working;
+  int committed;
+
   struct heap_frame *revs[NUM_REVISIONS];
 };
 
@@ -39,6 +41,8 @@ struct heap_leaf {
 struct heap_frame {
   size_t size; // size does not include self
 
+  char commit;
+
   // each type corresponds the the child at the same index
   enum frame_type ctype[NODE_CHILDREN];
   void *c[NODE_CHILDREN];
@@ -48,4 +52,9 @@ void *snap_malloc(struct heap_header *heap, size_t n);
 void snap_free(struct heap_header *heap, void *ptr);
 void *snap_realloc(struct heap_header *heap, void *ptr, size_t n);
 
+struct heap_frame *root(struct heap_header *heap);
+
 struct heap_header *init_alloc(char *argv[], char *db_path);
+
+void commit(struct heap_header *heap);
+void begin_mut(struct heap_header *heap);

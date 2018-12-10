@@ -14,36 +14,6 @@
 
 #include "alloc.h"
 
-struct heap_frame *follow_rev(struct heap_header *heap, int rev) {
-  while (!heap->revs[rev]) {
-    rev--;
-  }
-
-  return heap->revs[rev];
-}
-
-void handle_segv(int signum, siginfo_t *i, void *d) {
-  void *addr = i->si_addr;
-
-  if (addr < MAP_START_ADDR ||
-      MAP_START_ADDR >= MAP_START_ADDR + ALLOC_BLOCK_SIZE) {
-    fprintf(stderr, "SEGFAULT %p\n", i->si_addr);
-    exit(2);
-  }
-
-  int page_size = getpagesize();
-
-  void *page = (void *)((uintptr_t)addr & ~((uintptr_t)page_size - 1));
-
-  fprintf(stderr, "! hit %p, marked %p-%p\n", addr, page, page + page_size);
-
-  int err = mprotect(page, page_size, PROT_READ | PROT_WRITE);
-  if (err != 0) {
-    fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
-    exit(3);
-  }
-}
-
 void *open_db(const char *path, size_t size) {
   int fd = open(path, O_CREAT | O_RDWR, 0660);
   if (fd == -1) {
@@ -57,8 +27,13 @@ void *open_db(const char *path, size_t size) {
     return NULL;
   }
 
-  void *mem =
-      mmap(MAP_START_ADDR, size, PROT_READ, MAP_FIXED | MAP_SHARED, fd, 0);
+  void *mem = mmap(
+      MAP_START_ADDR,
+      size,
+      PROT_READ | PROT_WRITE,
+      MAP_FIXED | MAP_SHARED,
+      fd,
+      0);
   if (mem == MAP_FAILED) {
     fprintf(stderr, "db map failed  %s\n", strerror(errno));
     return NULL;
@@ -68,7 +43,38 @@ void *open_db(const char *path, size_t size) {
 }
 
 struct heap_frame *root(struct heap_header *heap) {
-  return heap->revs[heap->rev];
+  return heap->revs[heap->working];
+}
+
+struct heap_header *segv_handle_heap;
+
+void *round_page(void *addr) {
+  return (void *)((uintptr_t)addr & ~((uintptr_t)getpagesize() - 1));
+}
+
+void handle_segv(int signum, siginfo_t *i, void *d) {
+  void *addr = i->si_addr;
+
+  if (addr < MAP_START_ADDR ||
+      MAP_START_ADDR >= MAP_START_ADDR + ALLOC_BLOCK_SIZE) {
+    fprintf(stderr, "SEGFAULT trying to read %p\n", i->si_addr);
+    exit(2);
+  }
+
+  if (segv_handle_heap->committed == segv_handle_heap->working) {
+    fprintf(stderr, "SEGFAULT write outside of mutation %p\n", i->si_addr);
+    exit(2);
+  }
+
+  void *page = round_page(addr);
+
+  fprintf(stderr, "! hit %p, marked %p-%p\n", addr, page, page + getpagesize());
+
+  int err = mprotect(page, getpagesize(), PROT_READ | PROT_WRITE);
+  if (err != 0) {
+    fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
+    exit(3);
+  }
 }
 
 struct heap_header *init_alloc(char *argv[], char *db_path) {
@@ -87,12 +93,6 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
     execve("/proc/self/exe", argv, NULL);
   }
 
-  struct sigaction sa;
-
-  sa.sa_flags = SA_SIGINFO | SA_NODEFER;
-  sa.sa_sigaction = handle_segv;
-  sigaction(SIGSEGV, &sa, NULL);
-
   void *mem = open_db(db_path, ALLOC_BLOCK_SIZE);
 
   struct heap_header *heap = mem;
@@ -101,18 +101,109 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
     heap->v = 0xffca;
     heap->size = ALLOC_BLOCK_SIZE;
 
-    heap->rev = 0;
+    heap->working = 0;
+    heap->committed = 0;
 
-    heap->revs[heap->rev] = mem + sizeof(struct heap_header);
+    heap->revs[heap->working] = mem + sizeof(struct heap_header);
     root(heap)->size =
         heap->size - sizeof(struct heap_header) - sizeof(struct heap_frame);
+    root(heap)->commit = 1;
   } else if (heap->v != 0xffca) {
-    fprintf(stderr, "got a bad snapshot, %d (expected) != %d (actual)", 0xffca,
-            heap->v);
+    fprintf(
+        stderr,
+        "got a bad snapshot, %d (expected) != %d (actual)",
+        0xffca,
+        heap->v);
     exit(1);
   }
 
+  segv_handle_heap = heap;
+
+  struct sigaction segv_action;
+
+  segv_action.sa_flags = SA_SIGINFO | SA_NODEFER;
+  segv_action.sa_sigaction = handle_segv;
+  sigaction(SIGSEGV, &segv_action, NULL);
+
   return heap;
+}
+
+void walk_heap_frames(
+    struct heap_frame *frame,
+    void (*cb)(struct heap_frame *, void *),
+    void *data) {
+  cb(frame, data);
+
+  for (int i = 0; i < NODE_CHILDREN; i++) {
+    if (frame->ctype[i] == FRAME) {
+      walk_heap_frames((struct heap_frame *)frame->c[i], cb, data);
+    }
+  }
+}
+
+struct non_commit_status {
+  void *addr;
+};
+
+void flag_non_commit(struct heap_frame *frame, void *d) {
+  struct non_commit_status *status = (struct non_commit_status *)d;
+  if (!frame->commit && !status->addr) {
+    status->addr = frame;
+  }
+}
+
+void verify(struct heap_header *heap) {
+  struct non_commit_status status = {
+      .addr = NULL,
+  };
+  walk_heap_frames(root(heap), flag_non_commit, (void *)&status);
+
+  assert(status.addr == 0);
+}
+
+void set_committed(struct heap_frame *frame, void *d) {
+  fprintf(stderr, "committing - %p\n", frame);
+  frame->commit = 1;
+}
+
+void commit(struct heap_header *heap) {
+  fprintf(stderr, "BEGINNING COMMIT\n");
+  walk_heap_frames(root(heap), set_committed, NULL);
+
+  fprintf(stderr, "SETTING RW\n");
+
+  int err = mprotect(
+      MAP_START_ADDR + sizeof(struct heap_header),
+      heap->size - sizeof(struct heap_header),
+      PROT_READ);
+  if (err != 0) {
+    fprintf(stderr, "failed to unmark write pages %s\n", strerror(errno));
+    exit(3);
+  }
+
+  fprintf(stderr, "COMMIT COMPLETE\n");
+  verify(heap);
+}
+
+void begin_mut(struct heap_header *heap) {
+  fprintf(stderr, "BEGINNING MUT\n");
+
+  assert(heap->working == heap->committed);
+  verify(heap);
+
+  fprintf(
+      stderr,
+      "rev: %d, frame: %p\n",
+      heap->working,
+      heap->revs[heap->committed]);
+
+  heap->working++;
+  heap->revs[heap->working] = heap->revs[heap->committed];
+
+  fprintf(stderr, "working: %d\n", heap->working);
+
+  assert(heap->working != heap->committed);
+  assert(heap->revs[heap->working] == heap->revs[heap->committed]);
 }
 
 int next_free_index(struct heap_frame *f) {
