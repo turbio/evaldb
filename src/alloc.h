@@ -14,6 +14,8 @@
 
 #define MAP_START_ADDR ((void *)0x600000000000)
 
+#define USER_DATA_DIST (PSIZE * 10)
+
 #define NUM_REVISIONS 100
 
 struct heap_header {

@@ -123,9 +123,11 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
     heap->working = 0;
     heap->committed = 0;
 
-    heap->revs[heap->working] = mem + round_page_up(sizeof(struct heap_header));
-    // root(heap)->size =
-    //     heap->size - sizeof(struct heap_header) - sizeof(struct heap_frame);
+    heap->revs[0] = mem + sizeof(struct heap_header);
+    heap->revs[0]->ctype[0] = USED_LEAF;
+    heap->revs[0]->c[0] = (void *)heap + USER_DATA_DIST;
+    ((struct heap_leaf *)heap->revs[0]->c[0])->committed = 1;
+    ((struct heap_leaf *)heap->revs[0]->c[0])->size = 0;
     root(heap)->committed = 1;
   } else if (heap->v != 0xffca) {
     fprintf(stderr, "got a bad snapshot, %d (expected) != %d (actual)", 0xffca,
@@ -198,8 +200,8 @@ void commit(struct heap_header *heap) {
 
   fprintf(stderr, "SETTING READONLY\n");
 
-  void *start_addr = (void *)heap + round_page_up(sizeof(struct heap_header));
-  size_t len = heap->size - round_page_up(sizeof(struct heap_header));
+  void *start_addr = (void *)heap + USER_DATA_DIST;
+  size_t len = heap->size - USER_DATA_DIST;
 
   int err = mprotect(start_addr, len, PROT_READ);
   if (err != 0) {
@@ -244,36 +246,13 @@ int next_free_index(struct heap_frame *f) {
   return -1;
 }
 
-// frame pointer + used frame size = next available address
-void *next_free_addr(struct heap_frame *f, int *pindex) {
-  int next_child = next_free_index(f);
+void *create_next_frame(struct heap_frame *frame) {
+  int pindex = NODE_CHILDREN - 1;
 
-  assert(next_child != -1);
+  frame->ctype[pindex] = FRAME;
+  frame->c[pindex] = (void *)frame + sizeof(struct heap_frame);
 
-  if (next_child == 0) {
-    *pindex = 0;
-    return (void *)f + sizeof(struct heap_frame);
-  }
-
-  int prev_child = next_child - 1;
-
-  if (f->ctype[prev_child] == USED_LEAF || f->ctype[prev_child] == FREE_LEAF) {
-    *pindex = next_child;
-    struct heap_leaf *l = f->c[prev_child];
-    return (void *)l + l->size + sizeof(struct heap_leaf);
-  }
-
-  return next_free_addr(f->c[prev_child], pindex);
-}
-
-void *create_next_child(struct heap_frame *f, enum frame_type t) {
-  int pindex;
-  void *n = next_free_addr(f, &pindex);
-
-  f->ctype[pindex] = t;
-  f->c[pindex] = n;
-
-  return f->c[pindex];
+  return frame->c[pindex];
 }
 
 struct heap_frame *find_parent(struct heap_frame *r, void *f, int *cindex) {
@@ -305,14 +284,24 @@ void *snap_malloc(struct heap_header *heap, size_t n) {
     free_index = next_free_index(parent);
   }
 
+  void *left;
+
   if (free_index == NODE_CHILDREN - 1) {
-    struct heap_frame *link = create_next_child(parent, FRAME);
-    parent = link;
+    left = parent->c[free_index - 1];
+    parent = create_next_frame(parent);
+    free_index = 0;
+  } else {
+    left = parent->c[free_index - 1];
   }
 
-  struct heap_leaf *l = create_next_child(parent, USED_LEAF);
+  struct heap_leaf *l =
+      left + sizeof(struct heap_leaf) + ((struct heap_leaf *)left)->size;
+
+  parent->ctype[free_index] = USED_LEAF;
+  parent->c[free_index] = l;
 
   l->size = n;
+  l->committed = 0;
 
   return (void *)l + sizeof(struct heap_leaf);
 }
