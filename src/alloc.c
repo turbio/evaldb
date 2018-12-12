@@ -27,13 +27,8 @@ void *open_db(const char *path, size_t size) {
     return NULL;
   }
 
-  void *mem = mmap(
-      MAP_START_ADDR,
-      size,
-      PROT_READ | PROT_WRITE,
-      MAP_FIXED | MAP_SHARED,
-      fd,
-      0);
+  void *mem = mmap(MAP_START_ADDR, size, PROT_READ | PROT_WRITE,
+                   MAP_FIXED | MAP_SHARED, fd, 0);
   if (mem == MAP_FAILED) {
     fprintf(stderr, "db map failed  %s\n", strerror(errno));
     return NULL;
@@ -46,13 +41,35 @@ struct heap_frame *root(struct heap_header *heap) {
   return heap->revs[heap->working];
 }
 
-struct heap_header *segv_handle_heap;
+size_t round_page_up(size_t size) {
+  if (size % PSIZE) {
+    return size + PSIZE - (size % PSIZE);
+  }
 
-void *round_page(void *addr) {
-  return (void *)((uintptr_t)addr & ~((uintptr_t)getpagesize() - 1));
+  return size;
 }
 
+uintptr_t round_page(uintptr_t addr) { return addr & ~(PSIZE - 1); }
+
+void find_frames_inside(struct heap_frame *frame, void *page) {
+  fprintf(stderr, "MARKING in %p\n", page);
+
+  for (int i = 0; i < NODE_CHILDREN; i++) {
+    if (frame->ctype[i] == USED_LEAF) {
+      if (frame->c[i] >= page && frame->c[i] < page + PSIZE) {
+        fprintf(stderr, "\thit: %p\n", frame->c[i]);
+      }
+    } else if (frame->ctype[i] == FRAME) {
+      find_frames_inside(frame->c[i], page);
+    }
+  }
+}
+
+struct heap_header *segv_handle_heap;
+
 void handle_segv(int signum, siginfo_t *i, void *d) {
+  struct heap_header *heap = segv_handle_heap;
+
   void *addr = i->si_addr;
 
   if (addr < MAP_START_ADDR ||
@@ -66,11 +83,13 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
     exit(2);
   }
 
-  void *page = round_page(addr);
+  void *page = (void *)round_page((uintptr_t)addr);
 
-  fprintf(stderr, "! hit %p, marked %p-%p\n", addr, page, page + getpagesize());
+  fprintf(stderr, "! hit %p, marked %p-%p\n", addr, page, page + PSIZE - 1);
 
-  int err = mprotect(page, getpagesize(), PROT_READ | PROT_WRITE);
+  find_frames_inside(root(heap), page);
+
+  int err = mprotect(page, PSIZE, PROT_READ | PROT_WRITE);
   if (err != 0) {
     fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
     exit(3);
@@ -104,16 +123,13 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
     heap->working = 0;
     heap->committed = 0;
 
-    heap->revs[heap->working] = mem + sizeof(struct heap_header);
-    root(heap)->size =
-        heap->size - sizeof(struct heap_header) - sizeof(struct heap_frame);
-    root(heap)->commit = 1;
+    heap->revs[heap->working] = mem + round_page_up(sizeof(struct heap_header));
+    // root(heap)->size =
+    //     heap->size - sizeof(struct heap_header) - sizeof(struct heap_frame);
+    root(heap)->committed = 1;
   } else if (heap->v != 0xffca) {
-    fprintf(
-        stderr,
-        "got a bad snapshot, %d (expected) != %d (actual)",
-        0xffca,
-        heap->v);
+    fprintf(stderr, "got a bad snapshot, %d (expected) != %d (actual)", 0xffca,
+            heap->v);
     exit(1);
   }
 
@@ -128,61 +144,76 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
   return heap;
 }
 
-void walk_heap_frames(
-    struct heap_frame *frame,
-    void (*cb)(struct heap_frame *, void *),
-    void *data) {
-  cb(frame, data);
+void walk_heap(struct heap_frame *frame, void (*cb)(struct heap_leaf *, void *),
+               void *d) {
+  cb((struct heap_leaf *)frame, d);
 
   for (int i = 0; i < NODE_CHILDREN; i++) {
     if (frame->ctype[i] == FRAME) {
-      walk_heap_frames((struct heap_frame *)frame->c[i], cb, data);
+      walk_heap((struct heap_frame *)frame->c[i], cb, d);
+    } else if (frame->ctype[i] == USED_LEAF) {
+      cb((struct heap_leaf *)frame->c[i], d);
     }
   }
 }
 
 struct non_commit_status {
   void *addr;
+  int count;
 };
 
-void flag_non_commit(struct heap_frame *frame, void *d) {
+void flag_non_commit(struct heap_leaf *frame, void *d) {
   struct non_commit_status *status = (struct non_commit_status *)d;
-  if (!frame->commit && !status->addr) {
-    status->addr = frame;
+  if (!frame->committed) {
+    status->count++;
+    if (!status->addr) {
+      status->addr = frame;
+    }
   }
 }
 
 void verify(struct heap_header *heap) {
   struct non_commit_status status = {
       .addr = NULL,
+      .count = 0,
   };
-  walk_heap_frames(root(heap), flag_non_commit, (void *)&status);
+  walk_heap(root(heap), flag_non_commit, (void *)&status);
 
   assert(status.addr == 0);
 }
 
-void set_committed(struct heap_frame *frame, void *d) {
-  fprintf(stderr, "committing - %p\n", frame);
-  frame->commit = 1;
+void set_committed(struct heap_leaf *frame, void *d) {
+  // fprintf(stderr, "committing - %p\n", frame);
+  int *flagged = (int *)d;
+  (*flagged)++;
+  frame->committed = 1;
 }
 
 void commit(struct heap_header *heap) {
   fprintf(stderr, "BEGINNING COMMIT\n");
-  walk_heap_frames(root(heap), set_committed, NULL);
+  int flagged = 0;
+  walk_heap(root(heap), set_committed, &flagged);
 
-  fprintf(stderr, "SETTING RW\n");
+  fprintf(stderr, "committed %d nodes\n", flagged);
 
-  int err = mprotect(
-      MAP_START_ADDR + sizeof(struct heap_header),
-      heap->size - sizeof(struct heap_header),
-      PROT_READ);
+  fprintf(stderr, "SETTING READONLY\n");
+
+  void *start_addr = (void *)heap + round_page_up(sizeof(struct heap_header));
+  size_t len = heap->size - round_page_up(sizeof(struct heap_header));
+
+  int err = mprotect(start_addr, len, PROT_READ);
   if (err != 0) {
     fprintf(stderr, "failed to unmark write pages %s\n", strerror(errno));
+    fprintf(stderr, "%p - %p", start_addr, start_addr + len - 1);
     exit(3);
   }
 
-  fprintf(stderr, "COMMIT COMPLETE\n");
   verify(heap);
+  fprintf(stderr, "UPDATING COMMIT BIT\n");
+
+  heap->committed = heap->working;
+
+  fprintf(stderr, "COMMIT COMPLETE\n");
 }
 
 void begin_mut(struct heap_header *heap) {
@@ -191,11 +222,8 @@ void begin_mut(struct heap_header *heap) {
   assert(heap->working == heap->committed);
   verify(heap);
 
-  fprintf(
-      stderr,
-      "rev: %d, frame: %p\n",
-      heap->working,
-      heap->revs[heap->committed]);
+  fprintf(stderr, "rev: %d, frame: %p\n", heap->working,
+          heap->revs[heap->committed]);
 
   heap->working++;
   heap->revs[heap->working] = heap->revs[heap->committed];
@@ -297,8 +325,6 @@ void snap_free(struct heap_header *heap, void *ptr) {
   assert(p->ctype[i] == USED_LEAF);
 
   p->ctype[i] = FREE_LEAF;
-
-  memset(ptr, '-', l->size);
 }
 
 void *snap_realloc(struct heap_header *heap, void *ptr, size_t n) {

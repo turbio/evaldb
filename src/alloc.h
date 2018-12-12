@@ -2,14 +2,15 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <unistd.h>
 
 #define NODE_CHILDREN 10
 
-#define _1_KB 1024
-#define _1_MB (_1_KB * 1024)
-#define _1_GB (_1_MB * 1024)
+#define PSIZE sysconf(_SC_PAGESIZE)
 
-#define ALLOC_BLOCK_SIZE (_1_MB * 1)
+#define INITIAL_PAGES 1000
+
+#define ALLOC_BLOCK_SIZE (INITIAL_PAGES * PSIZE)
 
 #define MAP_START_ADDR ((void *)0x600000000000)
 
@@ -35,13 +36,13 @@ enum frame_type {
 };
 
 struct heap_leaf {
-  size_t size;
+  char committed;
+  size_t size; // size does not include self
 };
 
 struct heap_frame {
+  char committed;
   size_t size; // size does not include self
-
-  char commit;
 
   // each type corresponds the the child at the same index
   enum frame_type ctype[NODE_CHILDREN];

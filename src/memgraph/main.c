@@ -19,45 +19,59 @@
 
 int n = 0;
 
-void print_node(void *addr, long size, const char *state) {
+void print_node(void *addr, long size, const char *state, int committed) {
   printf("\"%p\" ", addr);
   printf("[");
   printf(" tooltip=\"%p\\nsize: %ld\\nstate: %s\"", addr, size, state);
+  /*printf(" label=\"%p\\nsize: %ld\\nstate: %s\"", addr, size, state);*/
   printf(" label=\"\"");
   printf(" width=.1");
   printf(" height=.1");
   printf(" style=filled");
   printf(" fontsize=9");
   printf(" shape=box");
-  printf(" color=\"#888888\"");
+  printf(" penwidth=.5");
+  if (committed) {
+    printf(" color=\"#888888\"");
+  } else {
+    printf(" color=\"#ff0000\"");
+  }
   if (!strcmp(state, "NODE")) {
     printf(" fillcolor=\"#aaaaff\"");
   } else if (!strcmp(state, "FREE")) {
     printf(" fillcolor=\"#ffaaaa\"");
   } else if (!strcmp(state, "USED")) {
     printf(" fillcolor=\"#aaffaa\"");
+  } else {
+    printf(" fillcolor=\"#888888\"");
   }
-  printf("]");
+  printf("]\n");
   n++;
 }
 
+void print_node_connection(void *from, void *to) {
+  printf("\"%p\" -> \"%p\" ", from, to);
+  printf("[arrowsize=.25]\n");
+}
+
 void print_tree_nodes(struct heap_frame *frame) {
-  print_node(frame, frame->size, "NODE");
+  print_node(frame, frame->size, "NODE", frame->committed);
 
   for (int i = 0; i < NODE_CHILDREN; i++) {
-    printf("\"%p\" -> \"%p\"", frame, frame->c[i]);
-    printf("[arrowsize=.25]\n");
+    print_node_connection(frame, frame->c[i]);
 
     if (frame->ctype[i] == USED_LEAF) {
       struct heap_leaf *leaf = (struct heap_leaf *)frame->c[i];
-      print_node(leaf, leaf->size, "USED");
+      print_node(leaf, leaf->size, "USED", leaf->committed);
     } else if (frame->ctype[i] == FREE_LEAF) {
       struct heap_leaf *leaf = (struct heap_leaf *)frame->c[i];
-      print_node(leaf, leaf->size, "FREE");
+      print_node(leaf, leaf->size, "FREE", leaf->committed);
     } else if (frame->ctype[i] == EMPTY) {
-      print_node(0, 0, "EMPTY");
+      print_node(frame->c[i], 0, "EMPTY", 0);
     } else if (frame->ctype[i] == FRAME) {
       print_tree_nodes(frame->c[i]);
+    } else {
+      print_node(frame->c[i], 0, "UNKNOWN", 0);
     }
   }
 }
@@ -124,7 +138,22 @@ void render_tree(struct heap_header *heap) {
   printf("nodesep=0\n");
   printf("ranksep=0.1\n");
 
-  print_tree_nodes(root(heap));
+  printf("\"committed\" [shape=box fontsize=9]\n");
+  printf("\"working\" [shape=box fontsize=9]\n");
+
+  printf("\"committed\" -> \"revision %d\" [arrowsize=.25]\n", heap->committed);
+  printf("\"working\" -> \"revision %d\" [arrowsize=.25]\n", heap->working);
+
+  for (int i = 0; i < NUM_REVISIONS; i++) {
+    if (!heap->revs[i]) {
+      continue;
+    }
+
+    printf("\"revision %d\" [shape=box fontsize=9]\n", i);
+    printf("\"revision %d\" -> \"%p\" [arrowsize=.25]\n", i, heap->revs[i]);
+
+    print_tree_nodes(heap->revs[i]);
+  }
 }
 
 void render_mem_table(struct heap_header *heap) {
@@ -177,8 +206,8 @@ int main(int argc, char *argv[]) {
   find_bounds(root(heap), &min, &max);
 
   printf("digraph \"memory\" {\n");
-  // printf("rankdir=LR\n");
-  // render_mem_table(heap);
+  /*printf("rankdir=LR\n");*/
+  /*render_mem_table(heap);*/
   render_tree(heap);
 
   printf("}\n");
