@@ -28,6 +28,7 @@ struct heap_header {
   int committed;
 
   struct heap_frame *revs[NUM_REVISIONS];
+  struct heap_frame *last_frame;
 };
 
 enum frame_type {
@@ -44,7 +45,6 @@ struct heap_leaf {
 
 struct heap_frame {
   char committed;
-  size_t size; // size does not include self
 
   // each type corresponds the the child at the same index
   enum frame_type ctype[NODE_CHILDREN];

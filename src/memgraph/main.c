@@ -55,7 +55,7 @@ void print_node_connection(void *from, void *to) {
 }
 
 void print_tree_nodes(struct heap_frame *frame) {
-  print_node(frame, frame->size, "NODE", frame->committed);
+  print_node(frame, 0, "NODE", frame->committed);
 
   for (int i = 0; i < NODE_CHILDREN; i++) {
     print_node_connection(frame, frame->c[i]);
@@ -100,7 +100,7 @@ void print_table_node(void *addr, long size, const char *state) {
 }
 
 void table_nodes(struct heap_frame *frame) {
-  print_table_node(frame, frame->size, "NODE");
+  print_table_node(frame, 0, "NODE");
 
   for (int i = 0; i < NODE_CHILDREN; i++) {
     if (frame->ctype[i] == USED_LEAF) {
@@ -165,12 +165,12 @@ void render_mem_table(struct heap_header *heap) {
 }
 
 void find_bounds(struct heap_frame *frame, size_t *min, size_t *max) {
-  if (frame->size > *max) {
-    *max = frame->size;
-  }
-  if (frame->size < *min) {
-    *min = frame->size;
-  }
+  /*if (frame->size > *max) {*/
+  /**max = frame->size;*/
+  /*}*/
+  /*if (frame->size < *min) {*/
+  /**min = frame->size;*/
+  /*}*/
 
   for (int i = 0; i < NODE_CHILDREN; i++) {
     if (frame->ctype[i] == USED_LEAF || frame->ctype[i] == FREE_LEAF) {

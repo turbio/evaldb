@@ -49,23 +49,60 @@ size_t round_page_up(size_t size) {
   return size;
 }
 
-uintptr_t round_page(uintptr_t addr) { return addr & ~(PSIZE - 1); }
-
-void find_frames_inside(struct heap_frame *frame, void *page) {
-  fprintf(stderr, "MARKING in %p\n", page);
-
-  for (int i = 0; i < NODE_CHILDREN; i++) {
-    if (frame->ctype[i] == USED_LEAF) {
-      if (frame->c[i] >= page && frame->c[i] < page + PSIZE) {
-        fprintf(stderr, "\thit: %p\n", frame->c[i]);
-      }
-    } else if (frame->ctype[i] == FRAME) {
-      find_frames_inside(frame->c[i], page);
-    }
-  }
+void *round_page(void *addr) {
+  return (void *)((uintptr_t)addr & ~(PSIZE - 1));
 }
 
 struct heap_header *segv_handle_heap;
+
+struct heap_frame *create_frame(struct heap_header *heap) {
+  heap->last_frame = (void *)heap->last_frame + sizeof(struct heap_frame);
+  return heap->last_frame;
+}
+
+int find_frames_inside(struct heap_frame *frame, void *page) {
+  for (int i = 0; i < NODE_CHILDREN; i++) {
+    if (frame->ctype[i] == USED_LEAF) {
+      if (frame->c[i] >= page && frame->c[i] < page + PSIZE) {
+        return 1;
+      }
+    } else if (frame->ctype[i] == FRAME) {
+      if (find_frames_inside(frame->c[i], page)) {
+        return 1;
+      }
+    }
+  }
+
+  return 0;
+}
+
+struct heap_frame *copy_frame(struct heap_header *heap,
+                              struct heap_frame *frame) {
+  struct heap_frame *new = create_frame(heap);
+  memcpy(new->ctype, frame->ctype, sizeof(new->ctype));
+  memcpy(new->c, frame->c, sizeof(new->c));
+  new->committed = 0;
+  return new;
+}
+
+void copy_write_pages(struct heap_header *heap, struct heap_frame *frame,
+                      void *page) {
+  fprintf(stderr, "MARKING in %p\n", page);
+
+  for (int i = 0; i < NODE_CHILDREN; i++) {
+    if (frame->ctype[i] == FRAME) {
+      if (find_frames_inside(frame->c[i], page)) {
+        if (((struct heap_frame *)frame->c[i])->committed) {
+          frame->c[i] = copy_frame(heap, frame->c[i]);
+        }
+        fprintf(stderr, "\thit: %p\n", frame->c[i]);
+      }
+
+      copy_write_pages(heap, frame->c[i], page);
+    } else if (frame->ctype[i] == USED_LEAF) {
+    }
+  }
+}
 
 void handle_segv(int signum, siginfo_t *i, void *d) {
   struct heap_header *heap = segv_handle_heap;
@@ -83,17 +120,23 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
     exit(2);
   }
 
-  void *page = (void *)round_page((uintptr_t)addr);
+  assert(heap->working != heap->committed);
 
-  fprintf(stderr, "! hit %p, marked %p-%p\n", addr, page, page + PSIZE - 1);
-
-  find_frames_inside(root(heap), page);
+  void *page = round_page(addr);
 
   int err = mprotect(page, PSIZE, PROT_READ | PROT_WRITE);
   if (err != 0) {
     fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
     exit(3);
   }
+
+  fprintf(stderr, "! hit %p, marked %p-%p\n", addr, page, page + PSIZE - 1);
+
+  if (root(heap)->committed) {
+    heap->revs[heap->working] = copy_frame(heap, root(heap));
+  }
+
+  copy_write_pages(heap, root(heap), page);
 }
 
 struct heap_header *init_alloc(char *argv[], char *db_path) {
@@ -124,6 +167,7 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
     heap->committed = 0;
 
     heap->revs[0] = mem + sizeof(struct heap_header);
+    heap->last_frame = heap->revs[0];
     heap->revs[0]->ctype[0] = USED_LEAF;
     heap->revs[0]->c[0] = (void *)heap + USER_DATA_DIST;
     ((struct heap_leaf *)heap->revs[0]->c[0])->committed = 1;
@@ -246,15 +290,6 @@ int next_free_index(struct heap_frame *f) {
   return -1;
 }
 
-void *create_next_frame(struct heap_frame *frame) {
-  int pindex = NODE_CHILDREN - 1;
-
-  frame->ctype[pindex] = FRAME;
-  frame->c[pindex] = (void *)frame + sizeof(struct heap_frame);
-
-  return frame->c[pindex];
-}
-
 struct heap_frame *find_parent(struct heap_frame *r, void *f, int *cindex) {
   int i = 0;
 
@@ -288,7 +323,9 @@ void *snap_malloc(struct heap_header *heap, size_t n) {
 
   if (free_index == NODE_CHILDREN - 1) {
     left = parent->c[free_index - 1];
-    parent = create_next_frame(parent);
+
+    parent->ctype[NODE_CHILDREN - 1] = FRAME;
+    parent = parent->c[NODE_CHILDREN - 1] = create_frame(heap);
     free_index = 0;
   } else {
     left = parent->c[free_index - 1];
