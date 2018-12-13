@@ -27,8 +27,13 @@ void *open_db(const char *path, size_t size) {
     return NULL;
   }
 
-  void *mem = mmap(MAP_START_ADDR, size, PROT_READ | PROT_WRITE,
-                   MAP_FIXED | MAP_SHARED, fd, 0);
+  void *mem = mmap(
+      MAP_START_ADDR,
+      size,
+      PROT_READ | PROT_WRITE,
+      MAP_FIXED | MAP_SHARED,
+      fd,
+      0);
   if (mem == MAP_FAILED) {
     fprintf(stderr, "db map failed  %s\n", strerror(errno));
     return NULL;
@@ -76,8 +81,8 @@ int find_frames_inside(struct heap_frame *frame, void *page) {
   return 0;
 }
 
-struct heap_frame *copy_frame(struct heap_header *heap,
-                              struct heap_frame *frame) {
+struct heap_frame *
+copy_frame(struct heap_header *heap, struct heap_frame *frame) {
   struct heap_frame *new = create_frame(heap);
   memcpy(new->ctype, frame->ctype, sizeof(new->ctype));
   memcpy(new->c, frame->c, sizeof(new->c));
@@ -85,9 +90,8 @@ struct heap_frame *copy_frame(struct heap_header *heap,
   return new;
 }
 
-void copy_write_pages(struct heap_header *heap, struct heap_frame *frame,
-                      void *page) {
-  fprintf(stderr, "MARKING in %p\n", page);
+void copy_dirty_pages(
+    struct heap_header *heap, struct heap_frame *frame, void *page) {
 
   for (int i = 0; i < NODE_CHILDREN; i++) {
     if (frame->ctype[i] == FRAME) {
@@ -98,7 +102,7 @@ void copy_write_pages(struct heap_header *heap, struct heap_frame *frame,
         fprintf(stderr, "\thit: %p\n", frame->c[i]);
       }
 
-      copy_write_pages(heap, frame->c[i], page);
+      copy_dirty_pages(heap, frame->c[i], page);
     } else if (frame->ctype[i] == USED_LEAF) {
     }
   }
@@ -136,7 +140,8 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
     heap->revs[heap->working] = copy_frame(heap, root(heap));
   }
 
-  copy_write_pages(heap, root(heap), page);
+  fprintf(stderr, "MARKING in %p\n", page);
+  copy_dirty_pages(heap, root(heap), page);
 }
 
 struct heap_header *init_alloc(char *argv[], char *db_path) {
@@ -174,8 +179,11 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
     ((struct heap_leaf *)heap->revs[0]->c[0])->size = 0;
     root(heap)->committed = 1;
   } else if (heap->v != 0xffca) {
-    fprintf(stderr, "got a bad snapshot, %d (expected) != %d (actual)", 0xffca,
-            heap->v);
+    fprintf(
+        stderr,
+        "got a bad snapshot, %d (expected) != %d (actual)",
+        0xffca,
+        heap->v);
     exit(1);
   }
 
@@ -190,8 +198,8 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
   return heap;
 }
 
-void walk_heap(struct heap_frame *frame, void (*cb)(struct heap_leaf *, void *),
-               void *d) {
+void walk_heap(
+    struct heap_frame *frame, void (*cb)(struct heap_leaf *, void *), void *d) {
   cb((struct heap_leaf *)frame, d);
 
   for (int i = 0; i < NODE_CHILDREN; i++) {
@@ -268,8 +276,11 @@ void begin_mut(struct heap_header *heap) {
   assert(heap->working == heap->committed);
   verify(heap);
 
-  fprintf(stderr, "rev: %d, frame: %p\n", heap->working,
-          heap->revs[heap->committed]);
+  fprintf(
+      stderr,
+      "rev: %d, frame: %p\n",
+      heap->working,
+      heap->revs[heap->committed]);
 
   heap->working++;
   heap->revs[heap->working] = heap->revs[heap->committed];
