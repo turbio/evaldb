@@ -15,18 +15,21 @@ LDFLAGS    :=
 SRCS       := $(shell find $(SRCDIR) -type f -name "*.c")
 OBJS       := $(patsubst %.c,%.o,$(SRCS))
 
-EVALERS    := luaval
+CBINS      := luaval memtest
 SERVER     := evalserver
 
-.PHONY: all clean
+.PHONY: all clean test
 
-all: $(EVALERS) $(SERVER) memgraph
+all: $(CBINS) $(SERVER) memgraph
+
+test:
+	go test ./test
 
 evalserver: ./cmd/evalserver/*
 	go build ./cmd/evalserver
 
 clean:
-	$(RM) $(EVALERS) $(OBJS)
+	$(RM) $(CBINS) $(OBJS)
 	 cd ./vendor/lua-5.3.5 && $(MAKE) clean
 
 memgraph: src/alloc.o src/memgraph/main.o
@@ -39,6 +42,12 @@ luaval: src/alloc.o src/luaval/main.o ./vendor/lua-5.3.5/src/liblua.a
 	 cd ./vendor/lua-5.3.5 && $(MAKE) linux
 
 src/luaval/main.o: src/luaval/main.c
+	$(CC) $(CFLAGS) $(LUACFLAGS) -o $@ -c $<
+
+memtest: src/alloc.o src/memtest/main.o
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(LUALDFLAGS) -o $@
+
+src/memtest/main.o: src/memtest/main.c
 	$(CC) $(CFLAGS) $(LUACFLAGS) -o $@ -c $<
 
 %.o: %.c %.h
