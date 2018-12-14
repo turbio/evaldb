@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <unistd.h>
 
-#define NODE_CHILDREN 10
+#define NODE_CHILDREN 16
 
 #define PSIZE sysconf(_SC_PAGESIZE)
 
@@ -13,6 +13,8 @@
 #define ALLOC_BLOCK_SIZE (INITIAL_PAGES * PSIZE)
 
 #define MAP_START_ADDR ((void *)0x600000000000)
+
+#define USER_DATA_DIST (PSIZE * 10)
 
 #define NUM_REVISIONS 100
 
@@ -26,6 +28,9 @@ struct heap_header {
   int committed;
 
   struct heap_frame *revs[NUM_REVISIONS];
+
+  struct heap_frame *last_frame;
+  struct heap_leaf *last_leaf;
 };
 
 enum frame_type {
@@ -42,7 +47,6 @@ struct heap_leaf {
 
 struct heap_frame {
   char committed;
-  size_t size; // size does not include self
 
   // each type corresponds the the child at the same index
   enum frame_type ctype[NODE_CHILDREN];

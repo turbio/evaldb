@@ -24,7 +24,7 @@ void print_node(void *addr, long size, const char *state, int committed) {
   printf("[");
   printf(" tooltip=\"%p\\nsize: %ld\\nstate: %s\"", addr, size, state);
   /*printf(" label=\"%p\\nsize: %ld\\nstate: %s\"", addr, size, state);*/
-  printf(" label=\"\"");
+  /*printf(" label=\"\"");*/
   printf(" width=.1");
   printf(" height=.1");
   printf(" style=filled");
@@ -55,7 +55,7 @@ void print_node_connection(void *from, void *to) {
 }
 
 void print_tree_nodes(struct heap_frame *frame) {
-  print_node(frame, frame->size, "NODE", frame->committed);
+  print_node(frame, 0, "NODE", frame->committed);
 
   for (int i = 0; i < NODE_CHILDREN; i++) {
     print_node_connection(frame, frame->c[i]);
@@ -100,7 +100,7 @@ void print_table_node(void *addr, long size, const char *state) {
 }
 
 void table_nodes(struct heap_frame *frame) {
-  print_table_node(frame, frame->size, "NODE");
+  print_table_node(frame, 0, "NODE");
 
   for (int i = 0; i < NODE_CHILDREN; i++) {
     if (frame->ctype[i] == USED_LEAF) {
@@ -138,8 +138,8 @@ void render_tree(struct heap_header *heap) {
   printf("nodesep=0\n");
   printf("ranksep=0.1\n");
 
-  printf("\"committed\" [shape=box fontsize=9]\n");
-  printf("\"working\" [shape=box fontsize=9]\n");
+  printf("\"committed\" [shape=box fontsize=9 width=.1 height=.1]\n");
+  printf("\"working\" [shape=box fontsize=9 width=.1 height=.1]\n");
 
   printf("\"committed\" -> \"revision %d\" [arrowsize=.25]\n", heap->committed);
   printf("\"working\" -> \"revision %d\" [arrowsize=.25]\n", heap->working);
@@ -149,7 +149,7 @@ void render_tree(struct heap_header *heap) {
       continue;
     }
 
-    printf("\"revision %d\" [shape=box fontsize=9]\n", i);
+    printf("\"revision %d\" [shape=box fontsize=9 width=.1 height=.1]\n", i);
     printf("\"revision %d\" -> \"%p\" [arrowsize=.25]\n", i, heap->revs[i]);
 
     print_tree_nodes(heap->revs[i]);
@@ -165,12 +165,12 @@ void render_mem_table(struct heap_header *heap) {
 }
 
 void find_bounds(struct heap_frame *frame, size_t *min, size_t *max) {
-  if (frame->size > *max) {
-    *max = frame->size;
-  }
-  if (frame->size < *min) {
-    *min = frame->size;
-  }
+  /*if (frame->size > *max) {*/
+  /**max = frame->size;*/
+  /*}*/
+  /*if (frame->size < *min) {*/
+  /**min = frame->size;*/
+  /*}*/
 
   for (int i = 0; i < NODE_CHILDREN; i++) {
     if (frame->ctype[i] == USED_LEAF || frame->ctype[i] == FREE_LEAF) {
@@ -206,7 +206,7 @@ int main(int argc, char *argv[]) {
   find_bounds(root(heap), &min, &max);
 
   printf("digraph \"memory\" {\n");
-  /*printf("rankdir=LR\n");*/
+  printf("rankdir=LR\n");
   /*render_mem_table(heap);*/
   render_tree(heap);
 

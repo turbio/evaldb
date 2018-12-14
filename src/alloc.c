@@ -27,8 +27,13 @@ void *open_db(const char *path, size_t size) {
     return NULL;
   }
 
-  void *mem = mmap(MAP_START_ADDR, size, PROT_READ | PROT_WRITE,
-                   MAP_FIXED | MAP_SHARED, fd, 0);
+  void *mem = mmap(
+      MAP_START_ADDR,
+      size,
+      PROT_READ | PROT_WRITE,
+      MAP_FIXED | MAP_SHARED,
+      fd,
+      0);
   if (mem == MAP_FAILED) {
     fprintf(stderr, "db map failed  %s\n", strerror(errno));
     return NULL;
@@ -49,51 +54,137 @@ size_t round_page_up(size_t size) {
   return size;
 }
 
-uintptr_t round_page(uintptr_t addr) { return addr & ~(PSIZE - 1); }
-
-void find_frames_inside(struct heap_frame *frame, void *page) {
-  fprintf(stderr, "MARKING in %p\n", page);
-
-  for (int i = 0; i < NODE_CHILDREN; i++) {
-    if (frame->ctype[i] == USED_LEAF) {
-      if (frame->c[i] >= page && frame->c[i] < page + PSIZE) {
-        fprintf(stderr, "\thit: %p\n", frame->c[i]);
-      }
-    } else if (frame->ctype[i] == FRAME) {
-      find_frames_inside(frame->c[i], page);
-    }
-  }
+void *round_page(void *addr) {
+  return (void *)((uintptr_t)addr & ~(PSIZE - 1));
 }
 
 struct heap_header *segv_handle_heap;
 
-void handle_segv(int signum, siginfo_t *i, void *d) {
-  struct heap_header *heap = segv_handle_heap;
+struct heap_frame *create_frame(struct heap_header *heap) {
+  heap->last_frame = (void *)heap->last_frame + sizeof(struct heap_frame);
+  return heap->last_frame;
+}
 
+struct heap_leaf *create_leaf(struct heap_header *heap) {
+  heap->last_leaf = (void *)heap->last_leaf + sizeof(struct heap_leaf) +
+                    heap->last_leaf->size;
+  return heap->last_leaf;
+}
+
+int find_frames_inside(struct heap_frame *frame, void *page) {
+  for (int i = 0; i < NODE_CHILDREN; i++) {
+    if (frame->ctype[i] == USED_LEAF) {
+      if (frame->c[i] >= page && frame->c[i] < page + PSIZE) {
+        return 1;
+      }
+    } else if (frame->ctype[i] == FRAME) {
+      if (find_frames_inside(frame->c[i], page)) {
+        return 1;
+      }
+    }
+  }
+
+  return 0;
+}
+
+struct heap_frame *copy_frame(struct heap_header *h, struct heap_frame *frame) {
+  struct heap_frame *new = create_frame(h);
+  memcpy(new->ctype, frame->ctype, sizeof(new->ctype));
+  memcpy(new->c, frame->c, sizeof(new->c));
+  new->committed = 0;
+
+  fprintf(stderr, "copying frame %p to %p\n", frame, new);
+
+  return new;
+}
+
+struct heap_leaf *copy_leaf(struct heap_header *h, struct heap_leaf *leaf) {
+  struct heap_leaf *new = create_leaf(h);
+
+  fprintf(stderr, "copying leaf %p to %p\n", leaf, new);
+
+  new->size = leaf->size;
+  new->committed = 0;
+  memcpy(
+      (void *)leaf + sizeof(struct heap_leaf),
+      (void *)new + sizeof(struct heap_leaf),
+      leaf->size);
+
+  fprintf(stderr, "copying leaf %p to %p\n", leaf, new);
+
+  return new;
+}
+
+void copy_dirty_pages(
+    struct heap_header *heap, struct heap_frame *frame, void *page) {
+
+  for (int i = 0; i < NODE_CHILDREN; i++) {
+    if (frame->ctype[i] == FRAME) {
+      if (find_frames_inside(frame->c[i], page)) {
+        if (((struct heap_frame *)frame->c[i])->committed) {
+          frame->c[i] = copy_frame(heap, frame->c[i]);
+        }
+        fprintf(stderr, "\thit: %p\n", frame->c[i]);
+      }
+
+      copy_dirty_pages(heap, frame->c[i], page);
+    } else if (frame->ctype[i] == USED_LEAF) {
+      if (((struct heap_frame *)frame->c[i])->committed) {
+        frame->c[i] = copy_leaf(heap, frame->c[i]);
+      }
+    }
+  }
+}
+
+void *handling_segv = NULL;
+
+void handle_segv(int signum, siginfo_t *i, void *d) {
   void *addr = i->si_addr;
+
+  if (handling_segv) {
+    fprintf(
+        stderr,
+        "SEGFAULT at %p while already handling SEGV for %p\n",
+        addr,
+        handling_segv);
+    exit(2);
+  }
+
+  handling_segv = addr;
+
+  struct heap_header *heap = segv_handle_heap;
 
   if (addr < MAP_START_ADDR ||
       MAP_START_ADDR >= MAP_START_ADDR + ALLOC_BLOCK_SIZE) {
-    fprintf(stderr, "SEGFAULT trying to read %p\n", i->si_addr);
+    fprintf(stderr, "SEGFAULT trying to read %p\n", addr);
     exit(2);
   }
 
   if (segv_handle_heap->committed == segv_handle_heap->working) {
-    fprintf(stderr, "SEGFAULT write outside of mutation %p\n", i->si_addr);
+    fprintf(stderr, "SEGFAULT write outside of mutation %p\n", addr);
     exit(2);
   }
 
-  void *page = (void *)round_page((uintptr_t)addr);
+  assert(heap->working != heap->committed);
 
-  fprintf(stderr, "! hit %p, marked %p-%p\n", addr, page, page + PSIZE - 1);
-
-  find_frames_inside(root(heap), page);
+  void *page = round_page(addr);
 
   int err = mprotect(page, PSIZE, PROT_READ | PROT_WRITE);
   if (err != 0) {
     fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
     exit(3);
   }
+
+  fprintf(stderr, "! hit %p, marked %p-%p\n", addr, page, page + PSIZE - 1);
+
+  if (root(heap)->committed) {
+    heap->revs[heap->working] = copy_frame(heap, root(heap));
+  }
+
+  fprintf(stderr, "MARKING in %p\n", page);
+  copy_dirty_pages(heap, root(heap), page);
+
+  handling_segv = NULL;
 }
 
 struct heap_header *init_alloc(char *argv[], char *db_path) {
@@ -123,13 +214,20 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
     heap->working = 0;
     heap->committed = 0;
 
-    heap->revs[heap->working] = mem + round_page_up(sizeof(struct heap_header));
-    // root(heap)->size =
-    //     heap->size - sizeof(struct heap_header) - sizeof(struct heap_frame);
+    heap->revs[0] = mem + sizeof(struct heap_header);
+    heap->last_frame = heap->revs[0];
+    heap->revs[0]->ctype[0] = USED_LEAF;
+    heap->revs[0]->c[0] = (void *)heap + USER_DATA_DIST;
+    heap->last_leaf = heap->revs[0]->c[0];
+    ((struct heap_leaf *)heap->revs[0]->c[0])->committed = 1;
+    ((struct heap_leaf *)heap->revs[0]->c[0])->size = 0;
     root(heap)->committed = 1;
   } else if (heap->v != 0xffca) {
-    fprintf(stderr, "got a bad snapshot, %d (expected) != %d (actual)", 0xffca,
-            heap->v);
+    fprintf(
+        stderr,
+        "got a bad snapshot, %d (expected) != %d (actual)",
+        0xffca,
+        heap->v);
     exit(1);
   }
 
@@ -144,8 +242,8 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
   return heap;
 }
 
-void walk_heap(struct heap_frame *frame, void (*cb)(struct heap_leaf *, void *),
-               void *d) {
+void walk_heap(
+    struct heap_frame *frame, void (*cb)(struct heap_leaf *, void *), void *d) {
   cb((struct heap_leaf *)frame, d);
 
   for (int i = 0; i < NODE_CHILDREN; i++) {
@@ -198,8 +296,8 @@ void commit(struct heap_header *heap) {
 
   fprintf(stderr, "SETTING READONLY\n");
 
-  void *start_addr = (void *)heap + round_page_up(sizeof(struct heap_header));
-  size_t len = heap->size - round_page_up(sizeof(struct heap_header));
+  void *start_addr = (void *)heap + USER_DATA_DIST;
+  size_t len = heap->size - USER_DATA_DIST;
 
   int err = mprotect(start_addr, len, PROT_READ);
   if (err != 0) {
@@ -222,8 +320,11 @@ void begin_mut(struct heap_header *heap) {
   assert(heap->working == heap->committed);
   verify(heap);
 
-  fprintf(stderr, "rev: %d, frame: %p\n", heap->working,
-          heap->revs[heap->committed]);
+  fprintf(
+      stderr,
+      "rev: %d, frame: %p\n",
+      heap->working,
+      heap->revs[heap->committed]);
 
   heap->working++;
   heap->revs[heap->working] = heap->revs[heap->committed];
@@ -242,38 +343,6 @@ int next_free_index(struct heap_frame *f) {
   }
 
   return -1;
-}
-
-// frame pointer + used frame size = next available address
-void *next_free_addr(struct heap_frame *f, int *pindex) {
-  int next_child = next_free_index(f);
-
-  assert(next_child != -1);
-
-  if (next_child == 0) {
-    *pindex = 0;
-    return (void *)f + sizeof(struct heap_frame);
-  }
-
-  int prev_child = next_child - 1;
-
-  if (f->ctype[prev_child] == USED_LEAF || f->ctype[prev_child] == FREE_LEAF) {
-    *pindex = next_child;
-    struct heap_leaf *l = f->c[prev_child];
-    return (void *)l + l->size + sizeof(struct heap_leaf);
-  }
-
-  return next_free_addr(f->c[prev_child], pindex);
-}
-
-void *create_next_child(struct heap_frame *f, enum frame_type t) {
-  int pindex;
-  void *n = next_free_addr(f, &pindex);
-
-  f->ctype[pindex] = t;
-  f->c[pindex] = n;
-
-  return f->c[pindex];
 }
 
 struct heap_frame *find_parent(struct heap_frame *r, void *f, int *cindex) {
@@ -306,13 +375,18 @@ void *snap_malloc(struct heap_header *heap, size_t n) {
   }
 
   if (free_index == NODE_CHILDREN - 1) {
-    struct heap_frame *link = create_next_child(parent, FRAME);
-    parent = link;
+    parent->ctype[NODE_CHILDREN - 1] = FRAME;
+    parent = parent->c[NODE_CHILDREN - 1] = create_frame(heap);
+    free_index = 0;
   }
 
-  struct heap_leaf *l = create_next_child(parent, USED_LEAF);
+  struct heap_leaf *l = create_leaf(heap);
+
+  parent->ctype[free_index] = USED_LEAF;
+  parent->c[free_index] = l;
 
   l->size = n;
+  l->committed = 0;
 
   return (void *)l + sizeof(struct heap_leaf);
 }
