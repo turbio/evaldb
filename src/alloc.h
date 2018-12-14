@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <unistd.h>
 
-#define NODE_CHILDREN 10
+#define NODE_CHILDREN 16
 
 #define PSIZE sysconf(_SC_PAGESIZE)
 
@@ -28,7 +28,9 @@ struct heap_header {
   int committed;
 
   struct heap_frame *revs[NUM_REVISIONS];
+
   struct heap_frame *last_frame;
+  struct heap_leaf *last_leaf;
 };
 
 enum frame_type {
