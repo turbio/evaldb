@@ -12,7 +12,11 @@
 
 #define MAP_START_ADDR ((void *)0x600000000000)
 
+#define USER_DATA_START_ADDR ((char *)MAP_START_ADDR + (PAGE_SIZE * 8))
+
 #define NUM_REVISIONS 100
+
+#define GENERATION_CHILDREN 100
 
 struct heap_header {
   uint16_t v;
@@ -20,32 +24,44 @@ struct heap_header {
 
   void *user_ptr;
 
-  int working;
-  int committed;
+  struct snap_generation *working;
+  struct snap_generation *committed;
 
-  struct snap_page *revs[NUM_REVISIONS];
+  struct snap_generation *root;
 
-  // struct snap_gen *working;
-  // struct snap_gen *committed;
-
-  // struct snap_gen *root;
-
-  struct snap_page *last_frame;
+  struct snap_page *last_page;
+  struct snap_generation *last_gen;
+  int last_gen_index;
 };
 
-struct snap_gen {};
+enum snap_node_type {
+  NODE_GENERATION = 1 << 0,
+  NODE_PAGE = 1 << 1,
+};
+
+struct snap_node {
+  char type;
+  char committed;
+};
+
+struct snap_generation {
+  struct snap_node i;
+
+  int gen;
+  struct snap_node *c[GENERATION_CHILDREN];
+};
+
+struct snap_page {
+  struct snap_node i;
+
+  int pages;
+  int len;
+  struct snap_segment *c[];
+};
 
 struct snap_segment {
   char used;
   size_t size; // size does not include self
-};
-
-struct snap_page {
-  char committed;
-  int pages;
-  int len;
-  struct snap_page *next;
-  struct snap_segment *c[];
 };
 
 void *snap_malloc(struct heap_header *heap, size_t n);

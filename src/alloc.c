@@ -17,7 +17,8 @@
 // lol namespaces
 #define page snap_page
 #define segment snap_segment
-#define gen snap_snapgen
+#define generation snap_generation
+#define node snap_node
 
 void *open_db(const char *path, size_t size) {
   int fd = open(path, O_CREAT | O_RDWR, 0660);
@@ -47,10 +48,6 @@ void *open_db(const char *path, size_t size) {
   return mem;
 }
 
-struct page *root(struct heap_header *heap) {
-  return heap->revs[heap->working];
-}
-
 void *round_page_down(void *addr) {
   return (void *)((uintptr_t)addr & ~(PAGE_SIZE - 1));
 }
@@ -64,12 +61,12 @@ void *round_page_up(void *addr) {
 }
 
 struct page *new_page(struct heap_header *heap, size_t pages) {
-  struct page *f = heap->last_frame =
+  struct page *f = heap->last_page =
       (struct page
-           *)((char *)heap->last_frame + (heap->last_frame->pages * PAGE_SIZE));
+           *)((char *)heap->last_page + (heap->last_page->pages * PAGE_SIZE));
 
   *f = (struct page){
-      .committed = 0,
+      .i = {.type = NODE_PAGE, .committed = 0},
       .pages = pages,
       .len = 0,
   };
@@ -77,13 +74,13 @@ struct page *new_page(struct heap_header *heap, size_t pages) {
   return f;
 }
 
-struct page *copy_frame(struct heap_header *h, struct page *frame) {
-  struct page *new = new_page(h, frame->pages);
-  memcpy(new, frame, frame->pages * PAGE_SIZE);
+struct page *copy_generation(struct heap_header *h, struct page *p) {
+  struct page *new = new_page(h, p->pages);
+  memcpy(new, p, p->pages * PAGE_SIZE);
   return new;
 }
 
-void copy_dirty_pages(struct heap_header *heap, struct page *frame) {}
+void copy_dirty_pages(struct heap_header *heap, struct page *p) {}
 
 struct heap_header *segv_handle_heap;
 void *handling_segv = NULL;
@@ -162,20 +159,30 @@ struct heap_header *snap_init(char *argv[], char *db_path) {
   if (heap->v == 0) {
     heap->v = 0xffca;
     heap->size = ALLOC_BLOCK_SIZE;
+    heap->last_gen_index = 0;
 
-    int initial_rev = 0;
+    struct page *initial_page = heap->last_page =
+        (struct page *)USER_DATA_START_ADDR;
 
-    heap->working = initial_rev;
-    heap->committed = initial_rev;
-
-    heap->revs[initial_rev] =
-        round_page_up((char *)heap + sizeof(struct heap_header));
-    heap->last_frame = heap->revs[initial_rev];
-    *heap->revs[initial_rev] = (struct page){
-        .committed = 0,
+    *initial_page = (struct page){
+        .i = {.type = NODE_PAGE, .committed = 0},
         .pages = 1,
         .len = 0,
     };
+
+    struct generation *initial_gen = heap->last_gen =
+        (struct generation *)((char *)heap + sizeof(struct heap_header));
+
+    *initial_gen = (struct generation){
+        .i = {.type = NODE_GENERATION, .committed = 0},
+        .gen = heap->last_gen_index,
+        .c = {(struct node *)initial_page},
+    };
+
+    heap->working = initial_gen;
+    heap->committed = initial_gen;
+    heap->root = initial_gen;
+
   } else if (heap->v != 0xffca) {
     fprintf(
         stderr,
@@ -196,13 +203,25 @@ struct heap_header *snap_init(char *argv[], char *db_path) {
   return heap;
 }
 
-void walk_frames(struct page *f, void (*cb)(struct page *, void *), void *d) {
-
-  cb(f, d);
-
-  if (f->next) {
-    walk_frames(f->next, cb, d);
+int walk_nodes(struct node *n, int (*cb)(struct node *, void *), void *d) {
+  if (cb(n, d)) {
+    return 1;
   }
+
+  if (n->type == NODE_GENERATION) {
+    struct generation *g = (struct generation *)n;
+    for (int i = 0; i < GENERATION_CHILDREN; i++) {
+      if (!g->c[i]) {
+        continue;
+      }
+
+      if (walk_nodes(g->c[i], cb, d)) {
+        return 1;
+      }
+    }
+  }
+
+  return 0;
 }
 
 struct non_commit_status {
@@ -210,36 +229,40 @@ struct non_commit_status {
   int count;
 };
 
-void flag_non_commit(struct page *f, void *d) {
+int flag_non_commit(struct node *n, void *d) {
   struct non_commit_status *status = (struct non_commit_status *)d;
-  if (!f->committed) {
+  if (!n->committed) {
     status->count++;
     if (!status->addr) {
-      status->addr = f;
+      status->addr = n;
     }
   }
+
+  return 0;
 }
 
-void verify(struct heap_header *heap) {
+void verify_all_committed(struct heap_header *heap) {
   struct non_commit_status status = {
       .addr = NULL,
       .count = 0,
   };
-  walk_frames((struct page *)root(heap), flag_non_commit, (void *)&status);
+  walk_nodes((struct node *)heap->root, flag_non_commit, (void *)&status);
 
   assert(status.addr == 0);
 }
 
-void set_committed(struct page *f, void *d) {
+int set_committed(struct node *n, void *d) {
   int *flagged = (int *)d;
   (*flagged)++;
-  f->committed = 1;
+  n->committed = 1;
+
+  return 0;
 }
 
 void snap_commit(struct heap_header *heap) {
   fprintf(stderr, "BEGINNING COMMIT\n");
   int flagged = 0;
-  walk_frames((struct page *)root(heap), set_committed, &flagged);
+  walk_nodes((struct node *)heap->root, set_committed, &flagged);
 
   fprintf(stderr, "committed %d pages\n", flagged);
 
@@ -255,7 +278,7 @@ void snap_commit(struct heap_header *heap) {
     exit(3);
   }
 
-  verify(heap);
+  verify_all_committed(heap);
   fprintf(stderr, "UPDATING COMMIT BIT\n");
 
   heap->committed = heap->working;
@@ -263,32 +286,60 @@ void snap_commit(struct heap_header *heap) {
   fprintf(stderr, "COMMIT COMPLETE\n");
 }
 
+int first_free(struct generation *gen) {
+  for (int i = 0; i < GENERATION_CHILDREN; i++) {
+    if (!gen->c[i]) {
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+struct generation *new_gen(struct heap_header *h, int index) {
+  struct generation *new = ++h->last_gen;
+
+  *new = (struct generation){
+      .i = {.type = NODE_GENERATION, .committed = 0},
+      .gen = index,
+      .c = {0},
+  };
+
+  return new;
+}
+
 void snap_begin_mut(struct heap_header *heap) {
   fprintf(stderr, "BEGINNING MUT\n");
 
   assert(heap->working == heap->committed);
-  verify(heap);
+  verify_all_committed(heap);
 
   fprintf(
       stderr,
-      "rev: %d, frame: %p\n",
-      heap->working,
-      (void *)heap->revs[heap->committed]);
+      "rev: %d, generation at: %p\n",
+      heap->working->gen,
+      (void *)heap->working);
 
-  heap->working++;
-  heap->revs[heap->working] = heap->revs[heap->committed];
+  struct generation *last = heap->committed;
 
-  fprintf(stderr, "working: %d\n", heap->working);
+  int nexti = first_free(last);
+  assert(nexti != -1);
+
+  struct generation *next = new_gen(heap, ++heap->last_gen_index);
+
+  last->c[nexti] = (struct node *)next;
+
+  fprintf(stderr, "working now: %d\n", heap->working->gen);
 
   assert(heap->working != heap->committed);
-  assert(heap->revs[heap->working] == heap->revs[heap->committed]);
+  assert(heap->committed->gen != heap->working->gen);
 }
 
-size_t nsize(int c) {
-  return sizeof(struct page) + (sizeof(struct page *) * c);
+size_t page_head_size(int ch) {
+  return sizeof(struct page) + (sizeof(struct page *) * ch);
 }
 
-void *n_last_free(struct page *p) {
+void *page_data_start(struct page *p) {
   if (!p->len) {
     return (char *)p + (PAGE_SIZE * p->pages) - 1;
   }
@@ -296,48 +347,79 @@ void *n_last_free(struct page *p) {
   return (char *)p->c[p->len - 1] - 1;
 }
 
-struct segment *page_new_segment(struct page *p, size_t bytes) {
-  void *last_free = n_last_free(p);
-
-  if (((char *)last_free - bytes) - ((char *)p + nsize(p->len + 1)) <= 0) {
-    return NULL;
-  }
-
-  struct segment *addr = (struct segment *)((char *)last_free - bytes);
-
-  p->c[p->len] = addr;
-  p->len++;
-
-  addr->size = bytes;
-  addr->used = 1;
-
-  return addr;
+int page_can_fit(struct page *p, size_t b) {
+  return ((char *)page_data_start(p) - b) -
+             ((char *)p + page_head_size(p->len + 1)) >=
+         0;
 }
 
-struct page *n_new_child(struct heap_header *heap, struct page *p, size_t min) {
-  struct page *page = new_page(heap, (min / PAGE_SIZE) + 1);
+struct segment *page_new_segment(struct page *p, size_t bytes) {
+  assert(page_can_fit(p, bytes));
 
-  p->next = (struct page *)page;
+  void *last_free = page_data_start(p);
+  struct segment *seg =
+      (struct segment
+           *)(((char *)last_free + 1) - (bytes + sizeof(struct segment)));
 
-  return page;
+  p->c[p->len] = seg;
+  p->len++;
+
+  seg->size = bytes;
+  seg->used = 1;
+
+  return seg;
+}
+
+struct gen_match_info {
+  int target;
+  struct generation *mismatch;
+};
+
+int all_gen_match(struct node *n, void *d) {
+  if (n->type == NODE_GENERATION) {
+    struct gen_match_info *info = d;
+    struct generation *g = (struct generation *)n;
+    if (info->target != g->gen) {
+      info->mismatch = g;
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+struct first_fit {
+  size_t size;
+  struct page *p;
+};
+
+int find_first_fit(struct node *n, void *d) {
+  if (n->type == NODE_PAGE) {
+    struct page *p = (struct page *)n;
+    struct first_fit *ff = d;
+    if (page_can_fit(p, ff->size)) {
+      ff->p = p;
+      return 1;
+    }
+  }
+
+  return 0;
 }
 
 void *snap_malloc(struct heap_header *heap, size_t bytes) {
-  struct page *p = root(heap);
+  struct generation *g = heap->working;
 
-  while (p->next) {
-    p = p->next;
-  }
+  struct gen_match_info m = {.target = g->gen, .mismatch = NULL};
+  walk_nodes((struct node *)g, all_gen_match, &m);
+  assert(m.mismatch == NULL);
 
-  struct segment *l = page_new_segment(p, bytes + sizeof(struct segment));
-  if (l == NULL) {
-    p = n_new_child(heap, p, bytes);
-    l = page_new_segment(p, bytes + sizeof(struct segment));
-  }
+  struct first_fit fit = {.size = bytes, .p = NULL};
+  walk_nodes((struct node *)g, find_first_fit, &fit);
+  assert(fit.p != NULL);
 
-  assert(l != NULL);
+  struct segment *s = page_new_segment(fit.p, bytes);
 
-  return (char *)l + sizeof(struct segment);
+  return (char *)s + sizeof(struct segment);
 }
 
 void snap_free(struct heap_header *heap, void *ptr) {
