@@ -11,7 +11,7 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-  struct heap_header *heap = init_alloc(argv, argv[1]);
+  struct heap_header *heap = snap_init(argv, argv[1]);
 
   for (int i = 0; i < 10; i++) {
     char *d = snap_malloc(heap, 32);

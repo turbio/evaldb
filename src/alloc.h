@@ -23,32 +23,38 @@ struct heap_header {
   int working;
   int committed;
 
-  struct frame_node *revs[NUM_REVISIONS];
+  struct snap_page *revs[NUM_REVISIONS];
+
+  // struct snap_gen *working;
+  // struct snap_gen *committed;
+
+  // struct snap_gen *root;
+
+  struct snap_page *last_frame;
 };
 
-struct frame_leaf {
+struct snap_gen {};
+
+struct snap_segment {
   char used;
   size_t size; // size does not include self
 };
 
-struct frame_node {
+struct snap_page {
   char committed;
-
-  struct frame_node *next;
-
   int pages;
-
   int len;
-  struct frame_leaf *c[];
+  struct snap_page *next;
+  struct snap_segment *c[];
 };
 
 void *snap_malloc(struct heap_header *heap, size_t n);
 void snap_free(struct heap_header *heap, void *ptr);
 void *snap_realloc(struct heap_header *heap, void *ptr, size_t n);
 
-struct frame_node *root(struct heap_header *heap);
+struct snap_page *root(struct heap_header *heap);
 
-struct heap_header *init_alloc(char *argv[], char *db_path);
+struct heap_header *snap_init(char *argv[], char *db_path);
 
-void commit(struct heap_header *heap);
-void begin_mut(struct heap_header *heap);
+void snap_commit(struct heap_header *heap);
+void snap_begin_mut(struct heap_header *heap);

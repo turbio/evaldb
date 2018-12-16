@@ -14,6 +14,11 @@
 
 #include "alloc.h"
 
+// lol namespaces
+#define page snap_page
+#define segment snap_segment
+#define gen snap_snapgen
+
 void *open_db(const char *path, size_t size) {
   int fd = open(path, O_CREAT | O_RDWR, 0660);
   if (fd == -1) {
@@ -42,7 +47,7 @@ void *open_db(const char *path, size_t size) {
   return mem;
 }
 
-struct frame_node *root(struct heap_header *heap) {
+struct page *root(struct heap_header *heap) {
   return heap->revs[heap->working];
 }
 
@@ -52,16 +57,36 @@ void *round_page_down(void *addr) {
 
 void *round_page_up(void *addr) {
   if ((uintptr_t)addr & (PAGE_SIZE - 1)) {
-    return round_page_down(addr + PAGE_SIZE);
+    return round_page_down((char *)addr + PAGE_SIZE);
   }
 
   return addr;
 }
 
+struct page *new_page(struct heap_header *heap, size_t pages) {
+  struct page *f = heap->last_frame =
+      (struct page
+           *)((char *)heap->last_frame + (heap->last_frame->pages * PAGE_SIZE));
+
+  *f = (struct page){
+      .committed = 0,
+      .pages = pages,
+      .len = 0,
+  };
+
+  return f;
+}
+
+struct page *copy_frame(struct heap_header *h, struct page *frame) {
+  struct page *new = new_page(h, frame->pages);
+  memcpy(new, frame, frame->pages * PAGE_SIZE);
+  return new;
+}
+
+void copy_dirty_pages(struct heap_header *heap, struct page *frame) {}
+
 struct heap_header *segv_handle_heap;
-
 void *handling_segv = NULL;
-
 void handle_segv(int signum, siginfo_t *i, void *d) {
   void *addr = i->si_addr;
 
@@ -79,7 +104,7 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   struct heap_header *heap = segv_handle_heap;
 
   if (addr < MAP_START_ADDR ||
-      MAP_START_ADDR >= MAP_START_ADDR + ALLOC_BLOCK_SIZE) {
+      (char *)MAP_START_ADDR >= (char *)MAP_START_ADDR + ALLOC_BLOCK_SIZE) {
     fprintf(stderr, "SEGFAULT trying to read %p\n", addr);
     exit(2);
   }
@@ -93,18 +118,28 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
 
   void *page = round_page_down(addr);
 
+  struct page *f = page;
+  // assert(f->committed == 1);
+
   int err = mprotect(page, PAGE_SIZE, PROT_READ | PROT_WRITE);
   if (err != 0) {
     fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
     exit(3);
   }
 
-  fprintf(stderr, "! hit %p, marked %p-%p\n", addr, page, page + PAGE_SIZE - 1);
+  copy_dirty_pages(heap, f);
+
+  fprintf(
+      stderr,
+      "! hit %p, marked %p-%p\n",
+      addr,
+      page,
+      (char *)page + PAGE_SIZE - 1);
 
   handling_segv = NULL;
 }
 
-struct heap_header *init_alloc(char *argv[], char *db_path) {
+struct heap_header *snap_init(char *argv[], char *db_path) {
   int pers = personality(0xffffffff);
   if (pers == -1) {
     fprintf(stderr, "could not get personality %s\n", strerror(errno));
@@ -133,8 +168,10 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
     heap->working = initial_rev;
     heap->committed = initial_rev;
 
-    heap->revs[initial_rev] = round_page_up(heap + sizeof(struct heap_header));
-    *heap->revs[initial_rev] = (struct frame_node){
+    heap->revs[initial_rev] =
+        round_page_up((char *)heap + sizeof(struct heap_header));
+    heap->last_frame = heap->revs[initial_rev];
+    *heap->revs[initial_rev] = (struct page){
         .committed = 0,
         .pages = 1,
         .len = 0,
@@ -159,8 +196,7 @@ struct heap_header *init_alloc(char *argv[], char *db_path) {
   return heap;
 }
 
-void walk_frames(
-    struct frame_node *f, void (*cb)(struct frame_node *, void *), void *d) {
+void walk_frames(struct page *f, void (*cb)(struct page *, void *), void *d) {
 
   cb(f, d);
 
@@ -174,7 +210,7 @@ struct non_commit_status {
   int count;
 };
 
-void flag_non_commit(struct frame_node *f, void *d) {
+void flag_non_commit(struct page *f, void *d) {
   struct non_commit_status *status = (struct non_commit_status *)d;
   if (!f->committed) {
     status->count++;
@@ -189,35 +225,33 @@ void verify(struct heap_header *heap) {
       .addr = NULL,
       .count = 0,
   };
-  walk_frames(
-      (struct frame_node *)root(heap), flag_non_commit, (void *)&status);
+  walk_frames((struct page *)root(heap), flag_non_commit, (void *)&status);
 
   assert(status.addr == 0);
 }
 
-void set_committed(struct frame_node *f, void *d) {
+void set_committed(struct page *f, void *d) {
   int *flagged = (int *)d;
   (*flagged)++;
   f->committed = 1;
 }
 
-void commit(struct heap_header *heap) {
+void snap_commit(struct heap_header *heap) {
   fprintf(stderr, "BEGINNING COMMIT\n");
-
   int flagged = 0;
-  walk_frames((struct frame_node *)root(heap), set_committed, &flagged);
+  walk_frames((struct page *)root(heap), set_committed, &flagged);
 
-  fprintf(stderr, "committed %d nodes\n", flagged);
+  fprintf(stderr, "committed %d pages\n", flagged);
 
   fprintf(stderr, "SETTING READONLY\n");
 
-  void *start_addr = round_page_up((void *)heap + sizeof(struct heap_header));
+  void *start_addr = round_page_up((char *)heap + sizeof(struct heap_header));
   size_t len = (INITIAL_PAGES - 1) * PAGE_SIZE;
 
   int err = mprotect(start_addr, len, PROT_READ);
   if (err != 0) {
     fprintf(stderr, "failed to unmark write pages %s\n", strerror(errno));
-    fprintf(stderr, "%p - %p", start_addr, start_addr + len - 1);
+    fprintf(stderr, "%p - %p", start_addr, (char *)start_addr + len - 1);
     exit(3);
   }
 
@@ -229,7 +263,7 @@ void commit(struct heap_header *heap) {
   fprintf(stderr, "COMMIT COMPLETE\n");
 }
 
-void begin_mut(struct heap_header *heap) {
+void snap_begin_mut(struct heap_header *heap) {
   fprintf(stderr, "BEGINNING MUT\n");
 
   assert(heap->working == heap->committed);
@@ -239,7 +273,7 @@ void begin_mut(struct heap_header *heap) {
       stderr,
       "rev: %d, frame: %p\n",
       heap->working,
-      heap->revs[heap->committed]);
+      (void *)heap->revs[heap->committed]);
 
   heap->working++;
   heap->revs[heap->working] = heap->revs[heap->committed];
@@ -251,79 +285,71 @@ void begin_mut(struct heap_header *heap) {
 }
 
 size_t nsize(int c) {
-  return sizeof(struct frame_node) + (sizeof(struct frame_node *) * c);
+  return sizeof(struct page) + (sizeof(struct page *) * c);
 }
 
-void *n_last_free(struct frame_node *node) {
-  if (!node->len) {
-    return (void *)node + (PAGE_SIZE * node->pages) - 1;
+void *n_last_free(struct page *p) {
+  if (!p->len) {
+    return (char *)p + (PAGE_SIZE * p->pages) - 1;
   }
 
-  return (void *)node->c[node->len - 1] - 1;
+  return (char *)p->c[p->len - 1] - 1;
 }
 
-struct frame_leaf *n_new_alloc(struct frame_node *node, size_t n) {
-  void *last_free = n_last_free(node);
+struct segment *page_new_segment(struct page *p, size_t bytes) {
+  void *last_free = n_last_free(p);
 
-  if ((last_free - n) - ((void *)node + nsize(node->len + 1)) <= 0) {
+  if (((char *)last_free - bytes) - ((char *)p + nsize(p->len + 1)) <= 0) {
     return NULL;
   }
 
-  struct frame_leaf *addr = last_free - n;
+  struct segment *addr = (struct segment *)((char *)last_free - bytes);
 
-  node->c[node->len] = addr;
-  node->len++;
+  p->c[p->len] = addr;
+  p->len++;
 
-  addr->size = n;
+  addr->size = bytes;
   addr->used = 1;
 
   return addr;
 }
 
-struct frame_node *n_new_child(struct frame_node *node, size_t min) {
-  fprintf(stderr, "creating new child...\n");
+struct page *n_new_child(struct heap_header *heap, struct page *p, size_t min) {
+  struct page *page = new_page(heap, (min / PAGE_SIZE) + 1);
 
-  struct frame_node *node2 = (void *)node + PAGE_SIZE;
+  p->next = (struct page *)page;
 
-  node->next = (struct frame_node *)node2;
-
-  *node2 = (struct frame_node){
-      .committed = 0,
-      .pages = (min / PAGE_SIZE) + 1,
-      .len = 0,
-  };
-
-  return node2;
+  return page;
 }
 
-void *snap_malloc(struct heap_header *heap, size_t n) {
-  struct frame_node *node = root(heap);
+void *snap_malloc(struct heap_header *heap, size_t bytes) {
+  struct page *p = root(heap);
 
-  while (node->next) {
-    node = node->next;
+  while (p->next) {
+    p = p->next;
   }
 
-  struct frame_leaf *l = n_new_alloc(node, n + sizeof(struct frame_leaf));
+  struct segment *l = page_new_segment(p, bytes + sizeof(struct segment));
   if (l == NULL) {
-    node = n_new_child(node, n);
-    l = n_new_alloc(node, n + sizeof(struct frame_leaf));
+    p = n_new_child(heap, p, bytes);
+    l = page_new_segment(p, bytes + sizeof(struct segment));
   }
 
   assert(l != NULL);
 
-  return (void *)l + sizeof(struct frame_leaf);
+  return (char *)l + sizeof(struct segment);
 }
 
 void snap_free(struct heap_header *heap, void *ptr) {
-  struct frame_leaf *l = ptr - sizeof(struct frame_leaf);
+  struct segment *l = (struct segment *)((char *)ptr - sizeof(struct segment));
 
   assert(l->used);
   l->used = 0;
 }
 
-void *snap_realloc(struct heap_header *heap, void *ptr, size_t n) {
-  void *result = snap_malloc(heap, n);
-  memmove(result, ptr, n);
+void *snap_realloc(struct heap_header *heap, void *ptr, size_t bytes) {
+  void *result = snap_malloc(heap, bytes);
+  memmove(result, ptr, bytes);
   snap_free(heap, ptr);
   return result;
 }

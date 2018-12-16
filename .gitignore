@@ -1,6 +1,7 @@
 /luaval
 /memgraph
 /evalserver
+/memtest
 /db
 _db
 lua
