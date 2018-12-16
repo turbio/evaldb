@@ -19,11 +19,15 @@
 
 int n = 0;
 
-void print_segment(struct snap_segment *s) {
+void print_segment(struct snap_segment *s, int labels) {
   printf("\"%p\" ", (void *)s);
   printf("[");
-  printf(" label=\"%p\\nsize: %ld\"", (void *)s, s->size);
-  /*printf(" label=\"\"");*/
+  if (labels) {
+    printf(" label=\"%p\\nsize: %ld\"", (void *)s, s->size);
+    printf(" tooltip=\"%p\\nsize: %ld\"", (void *)s, s->size);
+  } else {
+    printf(" label=\"\"");
+  }
   printf(" width=.1");
   printf(" height=.1");
   printf(" style=filled");
@@ -39,22 +43,28 @@ void print_segment(struct snap_segment *s) {
   n++;
 }
 
-void print_node(struct snap_node *n) {
+void print_node(struct snap_node *n, int labels) {
   printf("\"%p\" ", (void *)n);
   printf("[");
-  if (n->type == NODE_GENERATION) {
+  if (n->type == SNAP_NODE_GENERATION) {
     struct snap_generation *g = (struct snap_generation *)n;
     printf(" label=\"%p\\ngen: %d\"", (void *)n, g->gen);
+    printf(" tooltip=\"%p\\ngen: %d\"", (void *)n, g->gen);
     printf(" fillcolor=\"#aaaaff\"");
-  } else if (n->type == NODE_PAGE) {
+  } else if (n->type == SNAP_NODE_PAGE) {
     struct snap_page *p = (struct snap_page *)n;
     printf(" label=\"%p\\nlen: %d\\npages: %d\"", (void *)n, p->len, p->pages);
+    printf(
+        " tooltip=\"%p\\nlen: %d\\npages: %d\"", (void *)n, p->len, p->pages);
     printf(" fillcolor=\"#ffffaa\"");
   } else {
     printf(" label=\"%p\\nUNKNOWN\"", (void *)n);
+    printf(" tooltip=\"%p\\nUNKNOWN\"", (void *)n);
     printf(" fillcolor=\"#888888\"");
   }
-  /*printf(" label=\"\"");*/
+  if (!labels) {
+    printf(" label=\"\"");
+  }
   printf(" width=.1");
   printf(" height=.1");
   printf(" style=filled");
@@ -75,14 +85,10 @@ void print_node_connection(void *from, void *to) {
   printf("[arrowsize=.25]\n");
 }
 
-void print_tree_nodes(struct snap_node *n) {
-  if (!n) {
-    return;
-  }
+void print_tree_nodes(struct snap_node *n, int labels) {
+  print_node(n, labels);
 
-  print_node(n);
-
-  if (n->type == NODE_GENERATION) {
+  if (n->type == SNAP_NODE_GENERATION) {
     struct snap_generation *g = (struct snap_generation *)n;
     for (int i = 0; i < GENERATION_CHILDREN; i++) {
       if (!g->c[i]) {
@@ -90,13 +96,13 @@ void print_tree_nodes(struct snap_node *n) {
       }
 
       print_node_connection(g, g->c[i]);
-      print_tree_nodes(g->c[i]);
+      print_tree_nodes(g->c[i], labels);
     }
-  } else if (n->type == NODE_PAGE) {
+  } else if (n->type == SNAP_NODE_PAGE) {
     struct snap_page *p = (struct snap_page *)n;
     for (int i = 0; i < p->len; i++) {
       print_node_connection(p, p->c[i]);
-      print_segment(p->c[i]);
+      print_segment(p->c[i], labels);
     }
   } else {
     printf("unknown node type %d at %p", n->type, (void *)n);
@@ -104,17 +110,20 @@ void print_tree_nodes(struct snap_node *n) {
   }
 }
 
-void render_tree(struct heap_header *heap) {
-  printf("nodesep=0\n");
+void render_tree(struct heap_header *heap, int labels) {
+  printf("nodesep=0.0\n");
   printf("ranksep=0.1\n");
+  /*printf("overlap=false\n");*/
 
   printf("\"committed\" [shape=box fontsize=9 width=.1 height=.1]\n");
   printf("\"working\" [shape=box fontsize=9 width=.1 height=.1]\n");
+  printf("\"root\" [shape=box fontsize=9 width=.1 height=.1]\n");
 
   printf("\"committed\" -> \"%p\" [arrowsize=.25]\n", (void *)heap->committed);
   printf("\"working\" -> \"%p\" [arrowsize=.25]\n", (void *)heap->working);
+  printf("\"root\" -> \"%p\" [arrowsize=.25]\n", (void *)heap->root);
 
-  print_tree_nodes((struct snap_node *)heap->root);
+  print_tree_nodes((struct snap_node *)heap->root, labels);
 }
 
 int main(int argc, char *argv[]) {
@@ -123,7 +132,16 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-  struct heap_header *heap = snap_init(argv, argv[1]);
+  int labels = 0;
+
+  for (int i = 1; i < argc; i++) {
+    if (!strcmp(argv[i], "-l") || !strcmp(argv[i], "--labels")) {
+      labels = 1;
+      break;
+    }
+  }
+
+  struct heap_header *heap = snap_init(argv, argv[argc - 1]);
 
   if (heap->v != 0xffca) {
     printf("got a bad heap! %d != %d (expected)", heap->v, 0xffca);
@@ -132,7 +150,7 @@ int main(int argc, char *argv[]) {
 
   printf("digraph \"memory\" {\n");
   printf("rankdir=LR\n");
-  render_tree(heap);
+  render_tree(heap, labels);
 
   printf("}\n");
 

@@ -14,9 +14,7 @@
 
 #define USER_DATA_START_ADDR ((char *)MAP_START_ADDR + (PAGE_SIZE * 8))
 
-#define NUM_REVISIONS 100
-
-#define GENERATION_CHILDREN 100
+#define GENERATION_CHILDREN 0x10
 
 struct heap_header {
   uint16_t v;
@@ -35,8 +33,8 @@ struct heap_header {
 };
 
 enum snap_node_type {
-  NODE_GENERATION = 1 << 0,
-  NODE_PAGE = 1 << 1,
+  SNAP_NODE_GENERATION = 1 << 0,
+  SNAP_NODE_PAGE = 1 << 1,
 };
 
 struct snap_node {
@@ -46,7 +44,6 @@ struct snap_node {
 
 struct snap_generation {
   struct snap_node i;
-
   int gen;
   struct snap_node *c[GENERATION_CHILDREN];
 };

@@ -35,7 +35,7 @@ clean:
 memgraph: src/alloc.o src/memgraph/main.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
-luaval: src/alloc.o src/luaval/main.o ./vendor/lua-5.3.5/src/liblua.a
+luaval: src/alloc.o src/luaval/main.o src/luaval/cmdline.o ./vendor/lua-5.3.5/src/liblua.a
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(LUALDFLAGS) -o $@
 
 ./vendor/lua-5.3.5/src/liblua.a:
@@ -45,10 +45,7 @@ src/luaval/main.o: src/luaval/main.c
 	$(CC) $(CFLAGS) $(LUACFLAGS) -o $@ -c $<
 
 memtest: src/alloc.o src/memtest/main.o
-	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(LUALDFLAGS) -o $@
-
-src/memtest/main.o: src/memtest/main.c
-	$(CC) $(CFLAGS) $(LUACFLAGS) -o $@ -c $<
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 %.o: %.c %.h
 	$(CC) $(CFLAGS) -o $@ -c $<
