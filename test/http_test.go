@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	assert "github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
 	cmd := exec.Command("./evalserver")
 	cmd.Dir = "../"
-	//cmd.Stderr = os.Stderr
-	//cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
 
 	err := cmd.Start()
 	if err != nil {

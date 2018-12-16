@@ -9,7 +9,7 @@ CC         := gcc
 LUACFLAGS  := -I./vendor/lua-5.3.5/src $(shell pkg-config --cflags jansson)
 LUALDFLAGS := -L./vendor/lua-5.3.5/src -llua $(shell pkg-config --libs jansson)
 
-CFLAGS     := -pie -fpie -g -Wall -Wextra -pipe -lm -Wno-unused-parameter
+CFLAGS     := -g -Wall -Wextra -pedantic -pipe -lm -Wno-unused-parameter
 LDFLAGS    :=
 
 SRCS       := $(shell find $(SRCDIR) -type f -name "*.c")

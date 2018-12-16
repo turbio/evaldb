@@ -199,7 +199,7 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-  struct heap_header *heap = init_alloc(argv, argv[1]);
+  struct heap_header *heap = snap_init(argv, argv[1]);
 
   lua_State *L;
 
@@ -246,7 +246,7 @@ int main(int argc, char *argv[]) {
     lua_setallocf(L, lua_allocr, heap);
   }
 
-  commit(heap);
+  snap_commit(heap);
 
   if (argc < 3) {
     return 0;
@@ -257,7 +257,7 @@ int main(int argc, char *argv[]) {
 
     json_t *r;
 
-    begin_mut(heap);
+    snap_begin_mut(heap);
 
     if (run_for(heap, L, argv[2], &r, buff)) {
       fputs("error:", stdout);
@@ -268,7 +268,7 @@ int main(int argc, char *argv[]) {
       fputs("\n", stdout);
     }
 
-    commit(heap);
+    snap_commit(heap);
 
     return 0;
   }
@@ -304,11 +304,11 @@ int main(int argc, char *argv[]) {
 
     json_t *result;
 
-    begin_mut(heap);
+    snap_begin_mut(heap);
 
     int err = run_for(heap, L, code_str, &result, errbuff);
 
-    commit(heap);
+    snap_commit(heap);
 
     json_t *qr = json_object();
 

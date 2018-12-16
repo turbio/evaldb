@@ -19,7 +19,7 @@
 
 int n = 0;
 
-void print_leaf(struct frame_leaf *f) {
+void print_leaf(struct snap_segment *f) {
   printf("\"%p\" ", f);
   printf("[");
   printf(" tooltip=\"%p\\nsize: %ld\"", f, f->size);
@@ -40,7 +40,7 @@ void print_leaf(struct frame_leaf *f) {
   n++;
 }
 
-void print_node(struct frame_node *f) {
+void print_node(struct snap_page *f) {
   printf("\"%p\" ", f);
   printf("[");
   printf(" tooltip=\"%p\\nlen: %d\"", f, 0);
@@ -67,7 +67,7 @@ void print_node_connection(void *from, void *to) {
   printf("[arrowsize=.25]\n");
 }
 
-void print_tree_nodes(struct frame_node *frame) {
+void print_tree_nodes(struct snap_page *frame) {
   print_node(frame);
 
   for (int i = 0; i < frame->len; i++) {
@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-  struct heap_header *heap = init_alloc(argv, argv[1]);
+  struct heap_header *heap = snap_init(argv, argv[1]);
 
   if (heap->v != 0xffca) {
     printf("got a bad heap! %d != %d (expected)", heap->v, 0xffca);
