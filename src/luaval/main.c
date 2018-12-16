@@ -10,6 +10,7 @@
 #include <lualib.h>
 
 #include "../alloc.h"
+#include "./cmdline.h"
 
 int log_alloc;
 
@@ -193,13 +194,30 @@ abort:
   return !!error;
 }
 
-int main(int argc, char *argv[]) {
-  if (argc < 2) {
-    fprintf(stderr, "usage: %s <db file> [code]\n", *argv);
-    exit(1);
-  }
+void walk_generations(struct snap_generation *g) {
+  printf("%d\n", g->gen);
 
-  struct heap_header *heap = snap_init(argv, argv[1]);
+  for (int i = 0; i < GENERATION_CHILDREN; i++) {
+    if (g->c[i] && g->c[i]->type == SNAP_NODE_GENERATION) {
+      walk_generations((struct snap_generation *)g->c[i]);
+    }
+  }
+}
+
+void list_generations(struct heap_header *heap) {
+  walk_generations(heap->root);
+}
+
+int main(int argc, char *argv[]) {
+  struct gengetopt_args_info args;
+  cmdline_parser(argc, argv, &args);
+
+  struct heap_header *heap = snap_init(argv, args.db_arg);
+
+  if (args.list_flag) {
+    list_generations(heap);
+    return 0;
+  }
 
   lua_State *L;
 
@@ -240,26 +258,18 @@ int main(int argc, char *argv[]) {
     lua_pop(L, 1);
 
     fprintf(stderr, "CREATED LUA STATE at %p\n", L);
+
+    snap_commit(heap);
   }
 
-  if (lua_getallocf(L, NULL) != lua_allocr) {
-    lua_setallocf(L, lua_allocr, heap);
-  }
-
-  snap_commit(heap);
-
-  if (argc < 3) {
-    return 0;
-  }
-
-  if (argv[2][0] != '-') {
+  if (args.eval_given) {
     char buff[4096];
 
     json_t *r;
 
     snap_begin_mut(heap);
 
-    if (run_for(heap, L, argv[2], &r, buff)) {
+    if (run_for(heap, L, args.eval_arg, &r, buff)) {
       fputs("error:", stdout);
       fputs(buff, stdout);
       fputs("\n", stdout);
@@ -273,7 +283,7 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  for (;;) {
+  while (args.server_flag) {
     char inbuff[4096];
 
     if (fgets(inbuff, 4096, stdin) == NULL) {
