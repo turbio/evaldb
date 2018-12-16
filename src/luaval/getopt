@@ -1,0 +1,9 @@
+version "0.1.0"
+package "luaval"
+purpose "A snapshotting interpreter on top of lua"
+
+option "list" l "list all generations" flag off
+option "checkout" c "select a specific generation" int optional
+option "eval" e "evaluate the given program and exit" string optional
+option "db" d "the specific db file" string required
+option "server" s "run as a server sending/recieving json on stdio" flag off
