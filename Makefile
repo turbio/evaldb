@@ -15,12 +15,12 @@ LDFLAGS    :=
 SRCS       := $(shell find $(SRCDIR) -type f -name "*.c")
 OBJS       := $(patsubst %.c,%.o,$(SRCS))
 
-CBINS      := luaval memtest
+CBINS      := luaval memtest memgraph
 SERVER     := evalserver
 
 .PHONY: all clean test
 
-all: $(CBINS) $(SERVER) memgraph
+all: $(CBINS) $(SERVER)
 
 test:
 	go test ./test

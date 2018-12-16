@@ -19,11 +19,10 @@
 
 int n = 0;
 
-void print_leaf(struct snap_segment *f) {
-  printf("\"%p\" ", f);
+void print_segment(struct snap_segment *s) {
+  printf("\"%p\" ", (void *)s);
   printf("[");
-  printf(" tooltip=\"%p\\nsize: %ld\"", f, f->size);
-  printf(" label=\"%p\\nsize: %ld\"", f, f->size);
+  printf(" label=\"%p\\nsize: %ld\"", (void *)s, s->size);
   /*printf(" label=\"\"");*/
   printf(" width=.1");
   printf(" height=.1");
@@ -31,7 +30,7 @@ void print_leaf(struct snap_segment *f) {
   printf(" fontsize=9");
   printf(" shape=box");
   printf(" penwidth=.5");
-  if (f->used) {
+  if (s->used) {
     printf(" fillcolor=\"#aaffaa\"");
   } else {
     printf(" fillcolor=\"#ffaaaa\"");
@@ -40,11 +39,21 @@ void print_leaf(struct snap_segment *f) {
   n++;
 }
 
-void print_node(struct snap_page *f) {
-  printf("\"%p\" ", f);
+void print_node(struct snap_node *n) {
+  printf("\"%p\" ", (void *)n);
   printf("[");
-  printf(" tooltip=\"%p\\nlen: %d\"", f, 0);
-  printf(" label=\"%p\\nlen: %d\\npages: %d\"", f, f->len, f->pages);
+  if (n->type == NODE_GENERATION) {
+    struct snap_generation *g = (struct snap_generation *)n;
+    printf(" label=\"%p\\ngen: %d\"", (void *)n, g->gen);
+    printf(" fillcolor=\"#aaaaff\"");
+  } else if (n->type == NODE_PAGE) {
+    struct snap_page *p = (struct snap_page *)n;
+    printf(" label=\"%p\\nlen: %d\\npages: %d\"", (void *)n, p->len, p->pages);
+    printf(" fillcolor=\"#ffffaa\"");
+  } else {
+    printf(" label=\"%p\\nUNKNOWN\"", (void *)n);
+    printf(" fillcolor=\"#888888\"");
+  }
   /*printf(" label=\"\"");*/
   printf(" width=.1");
   printf(" height=.1");
@@ -52,12 +61,11 @@ void print_node(struct snap_page *f) {
   printf(" fontsize=9");
   printf(" shape=box");
   printf(" penwidth=.5");
-  if (f->committed) {
+  if (n->committed) {
     printf(" color=\"#888888\"");
   } else {
     printf(" color=\"#ff0000\"");
   }
-  printf(" fillcolor=\"#aaaaff\"");
   printf("]\n");
   n++;
 }
@@ -67,18 +75,32 @@ void print_node_connection(void *from, void *to) {
   printf("[arrowsize=.25]\n");
 }
 
-void print_tree_nodes(struct snap_page *frame) {
-  print_node(frame);
-
-  for (int i = 0; i < frame->len; i++) {
-    print_node_connection(frame, frame->c[i]);
-
-    print_leaf(frame->c[i]);
+void print_tree_nodes(struct snap_node *n) {
+  if (!n) {
+    return;
   }
 
-  if (frame->next) {
-    print_node_connection(frame, frame->next);
-    print_tree_nodes(frame->next);
+  print_node(n);
+
+  if (n->type == NODE_GENERATION) {
+    struct snap_generation *g = (struct snap_generation *)n;
+    for (int i = 0; i < GENERATION_CHILDREN; i++) {
+      if (!g->c[i]) {
+        continue;
+      }
+
+      print_node_connection(g, g->c[i]);
+      print_tree_nodes(g->c[i]);
+    }
+  } else if (n->type == NODE_PAGE) {
+    struct snap_page *p = (struct snap_page *)n;
+    for (int i = 0; i < p->len; i++) {
+      print_node_connection(p, p->c[i]);
+      print_segment(p->c[i]);
+    }
+  } else {
+    printf("unknown node type %d at %p", n->type, (void *)n);
+    exit(1);
   }
 }
 
@@ -89,19 +111,10 @@ void render_tree(struct heap_header *heap) {
   printf("\"committed\" [shape=box fontsize=9 width=.1 height=.1]\n");
   printf("\"working\" [shape=box fontsize=9 width=.1 height=.1]\n");
 
-  printf("\"committed\" -> \"revision %d\" [arrowsize=.25]\n", heap->committed);
-  printf("\"working\" -> \"revision %d\" [arrowsize=.25]\n", heap->working);
+  printf("\"committed\" -> \"%p\" [arrowsize=.25]\n", (void *)heap->committed);
+  printf("\"working\" -> \"%p\" [arrowsize=.25]\n", (void *)heap->working);
 
-  for (int i = 0; i < NUM_REVISIONS; i++) {
-    if (!heap->revs[i]) {
-      continue;
-    }
-
-    printf("\"revision %d\" [shape=box fontsize=9 width=.1 height=.1]\n", i);
-    printf("\"revision %d\" -> \"%p\" [arrowsize=.25]\n", i, heap->revs[i]);
-
-    print_tree_nodes(heap->revs[i]);
-  }
+  print_tree_nodes((struct snap_node *)heap->root);
 }
 
 int main(int argc, char *argv[]) {
