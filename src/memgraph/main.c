@@ -16,13 +16,16 @@
 #include <sys/personality.h>
 
 #include "../alloc.h"
+#include "./cmdline.h"
 
 int n = 0;
 
-void print_segment(struct snap_segment *s, int labels) {
+static struct gengetopt_args_info args;
+
+void print_segment(struct snap_segment *s) {
   printf("\"%p\" ", (void *)s);
   printf("[");
-  if (labels) {
+  if (args.labels_flag) {
     printf(" label=\"%p\\nsize: %ld\"", (void *)s, s->size);
     printf(" tooltip=\"%p\\nsize: %ld\"", (void *)s, s->size);
   } else {
@@ -43,7 +46,7 @@ void print_segment(struct snap_segment *s, int labels) {
   n++;
 }
 
-void print_node(struct snap_node *n, int labels) {
+void print_node(struct snap_node *n) {
   printf("\"%p\" ", (void *)n);
   printf("[");
   if (n->type == SNAP_NODE_GENERATION) {
@@ -62,7 +65,7 @@ void print_node(struct snap_node *n, int labels) {
     printf(" tooltip=\"%p\\nUNKNOWN\"", (void *)n);
     printf(" fillcolor=\"#888888\"");
   }
-  if (!labels) {
+  if (!args.labels_flag) {
     printf(" label=\"\"");
   }
   printf(" width=.1");
@@ -85,8 +88,8 @@ void print_node_connection(void *from, void *to) {
   printf("[arrowsize=.25]\n");
 }
 
-void print_tree_nodes(struct snap_node *n, int labels) {
-  print_node(n, labels);
+void print_tree_nodes(struct snap_node *n) {
+  print_node(n);
 
   if (n->type == SNAP_NODE_GENERATION) {
     struct snap_generation *g = (struct snap_generation *)n;
@@ -96,13 +99,15 @@ void print_tree_nodes(struct snap_node *n, int labels) {
       }
 
       print_node_connection(g, g->c[i]);
-      print_tree_nodes(g->c[i], labels);
+      print_tree_nodes(g->c[i]);
     }
   } else if (n->type == SNAP_NODE_PAGE) {
-    struct snap_page *p = (struct snap_page *)n;
-    for (int i = 0; i < p->len; i++) {
-      print_node_connection(p, p->c[i]);
-      print_segment(p->c[i], labels);
+    if (args.segments_flag) {
+      struct snap_page *p = (struct snap_page *)n;
+      for (int i = 0; i < p->len; i++) {
+        print_node_connection(p, p->c[i]);
+        print_segment(p->c[i]);
+      }
     }
   } else {
     printf("unknown node type %d at %p", n->type, (void *)n);
@@ -110,7 +115,7 @@ void print_tree_nodes(struct snap_node *n, int labels) {
   }
 }
 
-void render_tree(struct heap_header *heap, int labels) {
+void render_tree(struct heap_header *heap) {
   printf("nodesep=0.0\n");
   printf("ranksep=0.1\n");
   /*printf("overlap=false\n");*/
@@ -123,23 +128,11 @@ void render_tree(struct heap_header *heap, int labels) {
   printf("\"working\" -> \"%p\" [arrowsize=.25]\n", (void *)heap->working);
   printf("\"root\" -> \"%p\" [arrowsize=.25]\n", (void *)heap->root);
 
-  print_tree_nodes((struct snap_node *)heap->root, labels);
+  print_tree_nodes((struct snap_node *)heap->root);
 }
 
 int main(int argc, char *argv[]) {
-  if (argc < 2) {
-    printf("usage: %s <db file>\n", *argv);
-    exit(1);
-  }
-
-  int labels = 0;
-
-  for (int i = 1; i < argc; i++) {
-    if (!strcmp(argv[i], "-l") || !strcmp(argv[i], "--labels")) {
-      labels = 1;
-      break;
-    }
-  }
+  cmdline_parser(argc, argv, &args);
 
   struct heap_header *heap = snap_init(argv, argv[argc - 1]);
 
@@ -150,7 +143,7 @@ int main(int argc, char *argv[]) {
 
   printf("digraph \"memory\" {\n");
   printf("rankdir=LR\n");
-  render_tree(heap, labels);
+  render_tree(heap);
 
   printf("}\n");
 
