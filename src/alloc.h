@@ -6,12 +6,14 @@
 
 #define PAGE_SIZE sysconf(_SC_PAGESIZE)
 
+// TODO(turbio): this needs to be dynamic
 #define INITIAL_PAGES 0x1000
 
 #define ALLOC_BLOCK_SIZE (INITIAL_PAGES * PAGE_SIZE)
 
 #define MAP_START_ADDR ((void *)0x600000000000)
 
+// TODO(turbio): this needs to be dynamic
 #define USER_DATA_START_ADDR ((char *)MAP_START_ADDR + (PAGE_SIZE * 8))
 
 #define GENERATION_CHILDREN 0x10
@@ -44,6 +46,7 @@ struct snap_node {
 
 struct snap_generation {
   struct snap_node i;
+
   int gen;
   struct snap_node *c[GENERATION_CHILDREN];
 };
@@ -51,8 +54,11 @@ struct snap_generation {
 struct snap_page {
   struct snap_node i;
 
+  void *real_addr;
+
   int pages;
   int len;
+
   struct snap_segment *c[];
 };
 
@@ -65,9 +71,8 @@ void *snap_malloc(struct heap_header *heap, size_t n);
 void snap_free(struct heap_header *heap, void *ptr);
 void *snap_realloc(struct heap_header *heap, void *ptr, size_t n);
 
-struct snap_page *root(struct heap_header *heap);
-
 struct heap_header *snap_init(char *argv[], char *db_path);
 
-void snap_commit(struct heap_header *heap);
-void snap_begin_mut(struct heap_header *heap);
+int snap_commit(struct heap_header *heap);
+int snap_begin_mut(struct heap_header *heap);
+void snap_checkout(struct heap_header *heap, int generation);

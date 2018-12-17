@@ -56,10 +56,18 @@ void print_node(struct snap_node *n) {
     printf(" fillcolor=\"#aaaaff\"");
   } else if (n->type == SNAP_NODE_PAGE) {
     struct snap_page *p = (struct snap_page *)n;
-    printf(" label=\"%p\\nlen: %d\\npages: %d\"", (void *)n, p->len, p->pages);
+    printf(
+        " label=\"%p\\nlen: %d\\npages: %d\"",
+        (void *)p->real_addr,
+        p->len,
+        p->pages);
     printf(
         " tooltip=\"%p\\nlen: %d\\npages: %d\"", (void *)n, p->len, p->pages);
-    printf(" fillcolor=\"#ffffaa\"");
+    if (p->real_addr == p) {
+      printf(" fillcolor=\"#88ff88\"");
+    } else {
+      printf(" fillcolor=\"#ffff88\"");
+    }
   } else {
     printf(" label=\"%p\\nUNKNOWN\"", (void *)n);
     printf(" tooltip=\"%p\\nUNKNOWN\"", (void *)n);
@@ -134,7 +142,7 @@ void render_tree(struct heap_header *heap) {
 int main(int argc, char *argv[]) {
   cmdline_parser(argc, argv, &args);
 
-  struct heap_header *heap = snap_init(argv, argv[argc - 1]);
+  struct heap_header *heap = snap_init(argv, args.db_arg);
 
   if (heap->v != 0xffca) {
     printf("got a bad heap! %d != %d (expected)", heap->v, 0xffca);

@@ -69,6 +69,7 @@ struct page *new_page(struct heap_header *heap, size_t pages) {
       .i = {.type = SNAP_NODE_PAGE, .committed = 0},
       .pages = pages,
       .len = 0,
+      .real_addr = f,
   };
 
   return f;
@@ -99,6 +100,8 @@ struct page *page_copy(struct heap_header *h, struct page *p) {
   struct page *new = new_page(h, p->pages);
   memcpy(new, p, p->pages * PAGE_SIZE);
 
+  // offset all the segment pointers so they're still correct when the
+  // page is moved
   for (int i = 0; i < p->len; i++) {
     new->c[i] =
         (struct segment *)((char *)new->c[i] + ((char *)new - (char *)p));
@@ -207,6 +210,8 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
 
   struct segment_slot slot = {.index = -1, .target = NULL};
   walk_nodes((struct node *)heap->working, first_free_slot, &slot);
+
+  // TODO(turbio): this needs to create children sometimes
   assert(slot.target != NULL);
   assert(slot.index != -1);
 
@@ -227,11 +232,15 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
 }
 
 int set_readonly(struct node *n, void *d) {
-  if (n->type != SNAP_NODE_PAGE) {
+  if (n->type != SNAP_NODE_PAGE || !n->committed) {
     return 0;
   }
 
   struct page *p = (struct page *)n;
+
+  if (p->real_addr != p) {
+    return 0;
+  }
 
   fprintf(stderr, "setting RONLY on %p\n", (void *)n);
 
@@ -281,6 +290,7 @@ struct heap_header *snap_init(char *argv[], char *db_path) {
         .i = {.type = SNAP_NODE_PAGE, .committed = 0},
         .pages = 1,
         .len = 0,
+        .real_addr = initial_page,
     };
 
     struct generation *initial_gen = heap->last_gen =
@@ -303,9 +313,9 @@ struct heap_header *snap_init(char *argv[], char *db_path) {
         0xffca,
         heap->v);
     exit(1);
-  } else {
-    walk_nodes((struct node *)heap->root, set_readonly, NULL);
   }
+
+  walk_nodes((struct node *)heap->root, set_readonly, NULL);
 
   segv_handle_heap = heap;
 
@@ -353,7 +363,7 @@ int set_committed(struct node *n, void *d) {
   return 0;
 }
 
-void snap_commit(struct heap_header *heap) {
+int snap_commit(struct heap_header *heap) {
   fprintf(stderr, "BEGINNING COMMIT\n");
   int flagged = 0;
   walk_nodes((struct node *)heap->working, set_committed, &flagged);
@@ -369,6 +379,8 @@ void snap_commit(struct heap_header *heap) {
   heap->committed = heap->working;
 
   fprintf(stderr, "COMMIT COMPLETE\n");
+
+  return heap->committed->gen;
 }
 
 int gen_free_slot(struct generation *gen) {
@@ -393,7 +405,29 @@ struct generation *new_gen(struct heap_header *h, int index) {
   return new;
 }
 
-void snap_begin_mut(struct heap_header *heap) {
+struct node_filter {
+  int max_gen;
+  struct node *n[100];
+};
+
+int filter_to_gen(struct node *n, void *d) { return 0; }
+
+void snap_checkout(struct heap_header *heap, int generation) {
+  assert(heap->committed == heap->working);
+
+  if (heap->committed->gen == generation) {
+    return;
+  }
+
+  struct node_filter f = {
+      .max_gen = generation,
+      .n = {NULL},
+  };
+
+  walk_nodes((struct node *)heap->root, filter_to_gen, &f);
+}
+
+int snap_begin_mut(struct heap_header *heap) {
   fprintf(stderr, "BEGINNING MUT\n");
 
   assert(heap->working == heap->committed);
@@ -419,10 +453,12 @@ void snap_begin_mut(struct heap_header *heap) {
 
   assert(heap->working != heap->committed);
   assert(heap->committed->gen != heap->working->gen);
+
+  return heap->working->gen;
 }
 
-size_t page_head_size(int ch) {
-  return sizeof(struct page) + (sizeof(struct page *) * ch);
+void *page_head_end(struct page *p) {
+  return (char *)p + sizeof(struct page) + (sizeof(struct segment *) * p->len);
 }
 
 void *page_data_start(struct page *p) {
@@ -433,10 +469,10 @@ void *page_data_start(struct page *p) {
   return (char *)p->c[p->len - 1] - 1;
 }
 
-int page_can_fit(struct page *p, size_t b) {
-  return ((char *)page_data_start(p) - b) -
-             ((char *)p + page_head_size(p->len + 1)) >=
-         0;
+// can the page fit an additional segment of size n
+int page_can_fit(struct page *p, size_t n) {
+  return ((char *)page_data_start(p) - (char *)page_head_end(p)) >
+         (n + sizeof(void *) + sizeof(struct segment));
 }
 
 struct segment *page_new_segment(struct page *p, size_t bytes) {
@@ -447,11 +483,13 @@ struct segment *page_new_segment(struct page *p, size_t bytes) {
       (struct segment
            *)(((char *)last_free + 1) - (bytes + sizeof(struct segment)));
 
+  *seg = (struct segment){
+      .used = 1,
+      .size = bytes,
+  };
+
   p->c[p->len] = seg;
   p->len++;
-
-  seg->size = bytes;
-  seg->used = 1;
 
   return seg;
 }
@@ -519,6 +557,8 @@ void *snap_malloc(struct heap_header *heap, size_t bytes) {
 
   assert(fit.p != NULL);
 
+  assert(fit.p->i.type == SNAP_NODE_PAGE);
+
   struct segment *s = page_new_segment(fit.p, bytes);
 
   return (char *)s + sizeof(struct segment);
@@ -528,7 +568,6 @@ void snap_free(struct heap_header *heap, void *ptr) {
   assert(heap->working != heap->committed);
 
   struct segment *l = (struct segment *)((char *)ptr - sizeof(struct segment));
-
   assert(l->used);
   l->used = 0;
 }
