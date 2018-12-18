@@ -75,9 +75,16 @@ struct page *new_page(struct heap_header *heap, size_t pages) {
   return f;
 }
 
+enum {
+  WALK_CONTINUE = 0,
+  WALK_EXIT = 1,
+  WALK_SKIP = 2,
+};
+
 int walk_nodes(struct node *n, int (*cb)(struct node *, void *), void *d) {
-  if (cb(n, d)) {
-    return 1;
+  int action = cb(n, d);
+  if (action) {
+    return action;
   }
 
   if (n->type == SNAP_NODE_GENERATION) {
@@ -87,13 +94,13 @@ int walk_nodes(struct node *n, int (*cb)(struct node *, void *), void *d) {
         continue;
       }
 
-      if (walk_nodes(g->c[i], cb, d)) {
-        return 1;
+      if (walk_nodes(g->c[i], cb, d) == WALK_EXIT) {
+        return WALK_EXIT;
       }
     }
   }
 
-  return 0;
+  return WALK_CONTINUE;
 }
 
 struct page *page_copy(struct heap_header *h, struct page *p) {
@@ -110,6 +117,49 @@ struct page *page_copy(struct heap_header *h, struct page *p) {
   return new;
 }
 
+// TODO(turbio): just do some remapping
+void page_swap(struct heap_header *heap, struct page *p1, struct page *p2) {
+  fprintf(stderr, "swapping pages %p <-> %p\n", p1, p2);
+
+  int err = mprotect((void *)p1, PAGE_SIZE, PROT_READ | PROT_WRITE);
+  if (err != 0) {
+    fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
+    exit(3);
+  }
+
+  err = mprotect((void *)p2, PAGE_SIZE, PROT_READ | PROT_WRITE);
+  if (err != 0) {
+    fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
+    exit(3);
+  }
+
+  void *tmp = (char *)heap->last_page + (heap->last_page->pages * PAGE_SIZE);
+
+  memcpy(tmp, p1, p1->pages * PAGE_SIZE);
+  for (int i = 0; i < p1->len; i++) {
+    p1->c[i] = (struct segment *)((char *)p1->c[i] + ((char *)p2 - (char *)p1));
+  }
+
+  memcpy(p1, p2, p2->pages * PAGE_SIZE);
+  for (int i = 0; i < p2->len; i++) {
+    p2->c[i] = (struct segment *)((char *)p1->c[i] + ((char *)p1 - (char *)p2));
+  }
+
+  memcpy(p2, tmp, p1->pages * PAGE_SIZE);
+
+  err = mprotect((void *)p1, PAGE_SIZE, PROT_READ);
+  if (err != 0) {
+    fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
+    exit(3);
+  }
+
+  err = mprotect((void *)p2, PAGE_SIZE, PROT_READ);
+  if (err != 0) {
+    fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
+    exit(3);
+  }
+}
+
 struct segment_slot {
   int index;
   struct generation *target;
@@ -124,12 +174,12 @@ int first_free_slot(struct node *n, void *d) {
       if (!g->c[i]) {
         slot->target = g;
         slot->index = i;
-        return 1;
+        return WALK_EXIT;
       }
     }
   }
 
-  return 0;
+  return WALK_CONTINUE;
 }
 
 struct node_rel {
@@ -146,12 +196,12 @@ int find_parent(struct node *n, void *d) {
       if (l->child == g->c[i]) {
         l->parent = n;
         l->index = i;
-        return 1;
+        return WALK_EXIT;
       }
     }
   }
 
-  return 0;
+  return WALK_CONTINUE;
 }
 
 struct heap_header *segv_handle_heap;
@@ -233,13 +283,13 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
 
 int set_readonly(struct node *n, void *d) {
   if (n->type != SNAP_NODE_PAGE || !n->committed) {
-    return 0;
+    return WALK_CONTINUE;
   }
 
   struct page *p = (struct page *)n;
 
   if (p->real_addr != p) {
-    return 0;
+    return WALK_CONTINUE;
   }
 
   fprintf(stderr, "setting RONLY on %p\n", (void *)n);
@@ -255,7 +305,7 @@ int set_readonly(struct node *n, void *d) {
     exit(3);
   }
 
-  return 0;
+  return WALK_CONTINUE;
 }
 
 struct heap_header *snap_init(char *argv[], char *db_path) {
@@ -342,7 +392,7 @@ int flag_non_commit(struct node *n, void *d) {
     }
   }
 
-  return 0;
+  return WALK_CONTINUE;
 }
 
 void verify_all_committed(struct heap_header *heap) {
@@ -360,7 +410,7 @@ int set_committed(struct node *n, void *d) {
   (*flagged)++;
   n->committed = 1;
 
-  return 0;
+  return WALK_CONTINUE;
 }
 
 int snap_commit(struct heap_header *heap) {
@@ -405,26 +455,120 @@ struct generation *new_gen(struct heap_header *h, int index) {
   return new;
 }
 
-struct node_filter {
+struct up_to_gen_state {
   int max_gen;
-  struct node *n[100];
+  struct page *p[100];
 };
 
-int filter_to_gen(struct node *n, void *d) { return 0; }
+int pages_up_to_gen(struct node *n, void *d) {
+  struct up_to_gen_state *s = (struct up_to_gen_state *)d;
+
+  if (n->type == SNAP_NODE_GENERATION) {
+    struct generation *g = (struct generation *)n;
+
+    if (g->gen > s->max_gen) {
+      return WALK_SKIP;
+    }
+
+    return WALK_CONTINUE;
+  }
+
+  struct page *page = (struct page *)n;
+
+  int i = 0;
+  while (s->p[i]) {
+    if (s->p[i]->real_addr == page->real_addr) {
+      break;
+    }
+
+    i++;
+
+    assert(i < 100);
+  }
+
+  s->p[i] = page;
+
+  return WALK_CONTINUE;
+}
+
+struct gen_from_id {
+  int id;
+  struct generation *g;
+};
+
+int first_gen_for_id(struct node *n, void *d) {
+  if (n->type == SNAP_NODE_GENERATION) {
+    struct generation *g = (struct generation *)n;
+    struct gen_from_id *f = (struct gen_from_id *)d;
+
+    if (g->gen == f->id) {
+      f->g = g;
+      return WALK_EXIT;
+    }
+  }
+
+  return WALK_CONTINUE;
+}
 
 void snap_checkout(struct heap_header *heap, int generation) {
+  fprintf(stderr, "BEGINNING CHECKOUT\n");
+
   assert(heap->committed == heap->working);
+
+  struct gen_from_id fid = {.id = generation, .g = NULL};
+  walk_nodes((struct node *)heap->root, first_gen_for_id, &fid);
+  assert(fid.g != NULL);
+  assert(fid.g->gen == generation);
 
   if (heap->committed->gen == generation) {
     return;
   }
 
-  struct node_filter f = {
+  struct up_to_gen_state s = {
       .max_gen = generation,
-      .n = {NULL},
+      .p = {NULL},
   };
 
-  walk_nodes((struct node *)heap->root, filter_to_gen, &f);
+  walk_nodes((struct node *)heap->root, pages_up_to_gen, &s);
+
+  int i = 0;
+  while (s.p[i]) {
+    if (s.p[i] != s.p[i]->real_addr) {
+      struct node_rel rel1 = {
+          .parent = NULL,
+          .index = -1,
+          .child = (struct node *)s.p[i],
+      };
+      walk_nodes((struct node *)heap->root, find_parent, &rel1);
+      assert(rel1.parent != NULL);
+      assert(rel1.index != -1);
+      assert(rel1.parent->type == SNAP_NODE_GENERATION);
+
+      struct node_rel rel2 = {
+          .parent = NULL,
+          .index = -1,
+          .child = (struct node *)s.p[i]->real_addr,
+      };
+      walk_nodes((struct node *)heap->root, find_parent, &rel2);
+      assert(rel2.parent != NULL);
+      assert(rel2.index != -1);
+      assert(rel2.parent->type == SNAP_NODE_GENERATION);
+
+      ((struct generation *)rel1.parent)->c[rel1.index] =
+          (struct node *)s.p[i]->real_addr;
+      ((struct generation *)rel2.parent)->c[rel2.index] = (struct node *)s.p[i];
+
+      page_swap(heap, s.p[i], s.p[i]->real_addr);
+    }
+
+    i++;
+    assert(i < 100);
+  }
+
+  heap->committed = fid.g;
+  heap->working = fid.g;
+
+  fprintf(stderr, "COMPLETED CHECKOUT\n");
 }
 
 int snap_begin_mut(struct heap_header *heap) {
@@ -505,11 +649,11 @@ int all_gen_match(struct node *n, void *d) {
     struct generation *g = (struct generation *)n;
     if (info->target != g->gen) {
       info->mismatch = g;
-      return 1;
+      return WALK_EXIT;
     }
   }
 
-  return 0;
+  return WALK_CONTINUE;
 }
 
 struct page_fit {
@@ -523,11 +667,11 @@ int first_page_fit(struct node *n, void *d) {
     struct page_fit *ff = d;
     if (page_can_fit(p, ff->size)) {
       ff->p = p;
-      return 1;
+      return WALK_EXIT;
     }
   }
 
-  return 0;
+  return WALK_CONTINUE;
 }
 
 void *snap_malloc(struct heap_header *heap, size_t bytes) {

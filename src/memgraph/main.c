@@ -57,15 +57,21 @@ void print_node(struct snap_node *n) {
   } else if (n->type == SNAP_NODE_PAGE) {
     struct snap_page *p = (struct snap_page *)n;
     printf(
-        " label=\"%p\\nlen: %d\\npages: %d\"",
-        (void *)p->real_addr,
-        p->len,
-        p->pages);
-    printf(
         " tooltip=\"%p\\nlen: %d\\npages: %d\"", (void *)n, p->len, p->pages);
     if (p->real_addr == p) {
+      printf(
+          " label=\"%p\\nlen: %d\\npages: %d\"",
+          (void *)p->real_addr,
+          p->len,
+          p->pages);
       printf(" fillcolor=\"#88ff88\"");
     } else {
+      printf(
+          " label=\"%p\\nat %p\\nlen: %d\\npages: %d\"",
+          (void *)p->real_addr,
+          (void *)p,
+          p->len,
+          p->pages);
       printf(" fillcolor=\"#ffff88\"");
     }
   } else {

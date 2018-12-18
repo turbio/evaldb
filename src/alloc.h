@@ -59,7 +59,7 @@ struct snap_page {
   int pages;
   int len;
 
-  struct snap_segment *c[];
+  struct snap_segment *c[]; // TODO(turbi): should be relative
 };
 
 struct snap_segment {
