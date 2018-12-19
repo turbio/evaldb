@@ -28,11 +28,15 @@ test:
 evalserver: ./cmd/evalserver/*
 	go build ./cmd/evalserver
 
+gengetopt:
+	(cd src/luaval && gengetopt < getopt)
+	(cd src/memgraph && gengetopt < getopt)
+
 clean:
 	$(RM) $(CBINS) $(OBJS)
 	 cd ./vendor/lua-5.3.5 && $(MAKE) clean
 
-memgraph: src/alloc.o src/memgraph/main.o
+memgraph: src/alloc.o src/memgraph/main.o src/memgraph/cmdline.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 luaval: src/alloc.o src/luaval/main.o src/luaval/cmdline.o ./vendor/lua-5.3.5/src/liblua.a

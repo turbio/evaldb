@@ -189,7 +189,7 @@ int run_for(
   assert(lua_gettop(L) == 0);
 
 abort:
-  lua_gc(L, LUA_GCCOLLECT, 0);
+  // lua_gc(L, LUA_GCCOLLECT, 0);
 
   return !!error;
 }
@@ -206,6 +206,8 @@ void walk_generations(struct snap_generation *g) {
 
 void list_generations(struct heap_header *heap) {
   walk_generations(heap->root);
+  printf("working: %d\n", heap->working->gen);
+  printf("committed: %d\n", heap->committed->gen);
 }
 
 int main(int argc, char *argv[]) {
@@ -219,6 +221,10 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
+  if (args.checkout_given) {
+    snap_checkout(heap, args.checkout_arg);
+  }
+
   lua_State *L;
 
   log_alloc = 1;
@@ -226,11 +232,10 @@ int main(int argc, char *argv[]) {
   if (heap->user_ptr) {
     fprintf(stderr, "LOADING LUA STATE\n");
     L = heap->user_ptr;
-    fprintf(stderr, "LOADED LUA STATE at %p\n", L);
+    fprintf(stderr, "LOADED LUA STATE at %p\n", (void *)L);
   } else {
     fprintf(stderr, "CREATING LUA STATE\n");
     L = lua_newstate(lua_allocr, heap);
-    heap->user_ptr = L;
 
     // be careful what we expose from the standard library, it has all sorts
     // of unsafe stuff built right in.
@@ -257,7 +262,9 @@ int main(int argc, char *argv[]) {
     luaL_requiref(L, "utf8", luaopen_utf8, 1);
     lua_pop(L, 1);
 
-    fprintf(stderr, "CREATED LUA STATE at %p\n", L);
+    fprintf(stderr, "CREATED LUA STATE at %p\n", (void *)L);
+
+    heap->user_ptr = L;
 
     snap_commit(heap);
   }
