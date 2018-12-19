@@ -433,16 +433,6 @@ int snap_commit(struct heap_header *heap) {
   return heap->committed->gen;
 }
 
-int gen_free_slot(struct generation *gen) {
-  for (int i = 0; i < GENERATION_CHILDREN; i++) {
-    if (!gen->c[i]) {
-      return i;
-    }
-  }
-
-  return -1;
-}
-
 struct generation *new_gen(struct heap_header *h, int index) {
   struct generation *new = ++h->last_gen;
 
@@ -583,14 +573,14 @@ int snap_begin_mut(struct heap_header *heap) {
       heap->working->gen,
       (void *)heap->working);
 
-  struct generation *last = heap->committed;
-
-  int nexti = gen_free_slot(last);
-  assert(nexti != -1);
+  struct segment_slot slot = {.index = -1, .target = NULL};
+  walk_nodes((struct node *)heap->committed, first_free_slot, &slot);
+  assert(slot.target != NULL);
+  assert(slot.index != -1);
 
   struct generation *next = new_gen(heap, ++heap->last_gen_index);
 
-  last->c[nexti] = (struct node *)next;
+  slot.target->c[slot.index] = (struct node *)next;
   heap->working = next;
 
   fprintf(stderr, "working now: %d\n", heap->working->gen);

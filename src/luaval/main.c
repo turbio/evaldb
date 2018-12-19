@@ -234,10 +234,11 @@ int run_for(
   }
 
   fprintf(stderr, "preamble \"%s\"\n", preamble);
+  fprintf(stderr, "code \"%s\"\n", code);
 
   char *code_gen = (char *)malloc(strlen(code) + strlen(preamble) + 1);
 
-  strcat(code_gen, preamble);
+  strcpy(code_gen, preamble);
   strcat(code_gen, code);
 
   did_read = 0;
@@ -325,8 +326,8 @@ int main(int argc, char *argv[]) {
     // of unsafe stuff built right in.
 
     // the base library has some unsafe stuff
-    /*luaL_requiref(L, "_G", luaopen_base, 1);*/
-    /*lua_pop(L, 1);*/
+    luaL_requiref(L, "_G", luaopen_base, 1);
+    lua_pop(L, 1);
 
     luaL_requiref(L, "string", luaopen_string, 1);
     lua_pop(L, 1);
