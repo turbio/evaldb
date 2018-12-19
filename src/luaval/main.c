@@ -26,6 +26,7 @@ void *lua_allocr(void *ud, void *ptr, size_t osize, size_t nsize) {
       fprintf(stderr, "   FREE %p %ld -> %ld\n", ptr, osize, nsize);
     }
 
+    /*free(ptr);*/
     snap_free(heap, ptr);
     return NULL;
   }
@@ -35,6 +36,7 @@ void *lua_allocr(void *ud, void *ptr, size_t osize, size_t nsize) {
       fprintf(stderr, "REALLOC %p %ld -> %ld\n", ptr, osize, nsize);
     }
 
+    /*return realloc(ptr, nsize);*/
     return snap_realloc(heap, ptr, nsize);
   }
 
@@ -42,12 +44,57 @@ void *lua_allocr(void *ud, void *ptr, size_t osize, size_t nsize) {
     fprintf(stderr, "  ALLOC %ld\n", nsize);
   }
 
-  void *addr = snap_malloc(heap, nsize);
-
-  return addr;
+  /*return malloc(nsize);*/
+  return snap_malloc(heap, nsize);
 }
 
-json_t *as_json(lua_State *L, int index, int depth) {
+void unmarshal(lua_State *L, json_t *v) {
+  lua_checkstack(L, 1);
+  switch (json_typeof(v)) {
+  case JSON_STRING:
+    lua_pushstring(L, json_string_value(v));
+    break;
+  case JSON_INTEGER:
+    lua_pushinteger(L, json_integer_value(v));
+    break;
+  case JSON_REAL:
+    lua_pushnumber(L, json_real_value(v));
+    break;
+  case JSON_TRUE:
+    lua_pushboolean(L, 1);
+    break;
+  case JSON_FALSE:
+    lua_pushboolean(L, 0);
+    break;
+  case JSON_ARRAY:
+    lua_checkstack(L, 2);
+    int len = json_array_size(v);
+    lua_createtable(L, len, 0);
+    for (int i = 0; i < len; i++) {
+      lua_pushinteger(L, i + 1);
+      unmarshal(L, json_array_get(v, i));
+      lua_settable(L, -3);
+    }
+    break;
+  case JSON_OBJECT:
+    lua_checkstack(L, 2);
+    lua_createtable(L, 0, json_object_size(v));
+    for (void *i = json_object_iter(v); i; i = json_object_iter_next(v, i)) {
+      lua_pushstring(L, json_object_iter_key(i));
+      unmarshal(L, json_object_iter_value(i));
+      lua_settable(L, -3);
+    }
+    break;
+  case JSON_NULL:
+    lua_pushnil(L);
+    break;
+  default:
+    lua_pushstring(L, "idk what this is");
+    break;
+  }
+}
+
+json_t *marshal(lua_State *L, int index, int depth) {
   if (depth > 5) {
     return json_string("!max depth!");
   }
@@ -117,7 +164,7 @@ json_t *as_json(lua_State *L, int index, int depth) {
           continue;
         }
 
-        json_object_set(v, key, as_json(L, lua_gettop(L), depth + 1));
+        json_object_set(v, key, marshal(L, lua_gettop(L), depth + 1));
         lua_pop(L, 1);
       }
     } else {
@@ -125,7 +172,7 @@ json_t *as_json(lua_State *L, int index, int depth) {
 
       lua_pushnil(L);
       while (lua_next(L, index) != 0) {
-        json_array_append_new(v, as_json(L, lua_gettop(L), depth + 1));
+        json_array_append_new(v, marshal(L, lua_gettop(L), depth + 1));
         lua_pop(L, 1);
       }
     }
@@ -161,30 +208,67 @@ int run_for(
     struct heap_header *heap,
     lua_State *L,
     const char *code,
+    json_t *args,
     json_t **result,
     char *errmsg) {
   assert(lua_gettop(L) == 0);
 
   int error;
 
-  fprintf(stderr, "evaling: \"%s\"\n", code);
+  int argc = json_object_size(args);
+
+  char preamble[1000] = {'\0'};
+
+  if (argc) {
+    strcat(preamble, "local ");
+    int first = 1;
+    for (void *i = json_object_iter(args); i;
+         i = json_object_iter_next(args, i)) {
+      if (!first) {
+        strcat(preamble, ",");
+      }
+      strcat(preamble, json_object_iter_key(i));
+      first = 0;
+    }
+    strcat(preamble, "=...\n");
+  }
+
+  fprintf(stderr, "preamble \"%s\"\n", preamble);
+
+  char *code_gen = (char *)malloc(strlen(code) + strlen(preamble) + 1);
+
+  strcat(code_gen, preamble);
+  strcat(code_gen, code);
 
   did_read = 0;
-  error = lua_load(L, lreader, (void *)code, "eval", "t");
+
+  fprintf(stderr, "evaling: \"%s\"\n", code_gen);
+  error = lua_load(L, lreader, (void *)code_gen, "eval", "t");
   if (error) {
     sprintf(errmsg, "%s", lua_tostring(L, -1));
     lua_pop(L, 1);
     goto abort;
   }
 
-  error = lua_pcall(L, 0, 1, 0);
+  free(code_gen);
+
+  if (argc) {
+    for (void *i = json_object_iter(args); i;
+         i = json_object_iter_next(args, i)) {
+      unmarshal(L, json_object_iter_value(i));
+    }
+  }
+
+  assert(argc + 1 == lua_gettop(L));
+
+  error = lua_pcall(L, argc, 1, 0);
   if (error) {
     sprintf(errmsg, "%s", lua_tostring(L, -1));
     lua_pop(L, 1);
     goto abort;
   }
 
-  *result = as_json(L, 1, 0);
+  *result = marshal(L, 1, 0);
   lua_pop(L, 1);
   assert(lua_gettop(L) == 0);
 
@@ -227,7 +311,7 @@ int main(int argc, char *argv[]) {
 
   lua_State *L;
 
-  log_alloc = 1;
+  /*log_alloc = 1;*/
 
   if (heap->user_ptr) {
     fprintf(stderr, "LOADING LUA STATE\n");
@@ -270,13 +354,30 @@ int main(int argc, char *argv[]) {
   }
 
   if (args.eval_given) {
+    json_t *interp_args = json_object();
+
+    for (int i = 0; i < args.arg_given; i++) {
+      char *eql = strchr(args.arg_arg[i], '=');
+      *eql = '\0';
+
+      json_t *v = json_loads(eql + 1, JSON_DECODE_ANY, NULL);
+
+      if (!v) {
+        fprintf(
+            stderr, "could not parse arg: %s = %s\n", args.arg_arg[i], eql + 1);
+        exit(1);
+      }
+
+      json_object_set(interp_args, args.arg_arg[i], v);
+    }
+
     char buff[4096];
 
     json_t *r;
 
     snap_begin_mut(heap);
 
-    if (run_for(heap, L, args.eval_arg, &r, buff)) {
+    if (run_for(heap, L, args.eval_arg, interp_args, &r, buff)) {
       fputs("error:", stdout);
       fputs(buff, stdout);
       fputs("\n", stdout);
@@ -309,6 +410,12 @@ int main(int argc, char *argv[]) {
       return 1;
     }
 
+    json_t *args = json_object_get(q, "args");
+    if (!json_is_object(args)) {
+      fprintf(stderr, "args should be an object\n");
+      return 1;
+    }
+
     json_t *code = json_object_get(q, "code");
     if (!json_is_string(code)) {
       fprintf(stderr, "code should be a string\n");
@@ -323,7 +430,7 @@ int main(int argc, char *argv[]) {
 
     snap_begin_mut(heap);
 
-    int err = run_for(heap, L, code_str, &result, errbuff);
+    int err = run_for(heap, L, code_str, args, &result, errbuff);
 
     snap_commit(heap);
 

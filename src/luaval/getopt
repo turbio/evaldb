@@ -7,3 +7,4 @@ option "checkout" c "select a specific generation" int optional
 option "eval" e "evaluate the given program and exit" string optional
 option "db" d "snapalloc db to use" string required
 option "server" s "run as a server sending/recieving json on stdio" flag off
+option "arg" a "argument sent to the interpreter" string optional multiple
