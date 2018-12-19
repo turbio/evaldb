@@ -47,11 +47,16 @@ struct gengetopt_args_info
   char * eval_arg;	/**< @brief evaluate the given program and exit.  */
   char * eval_orig;	/**< @brief evaluate the given program and exit original value given at command line.  */
   const char *eval_help; /**< @brief evaluate the given program and exit help description.  */
-  char * db_arg;	/**< @brief the specific db file.  */
-  char * db_orig;	/**< @brief the specific db file original value given at command line.  */
-  const char *db_help; /**< @brief the specific db file help description.  */
+  char * db_arg;	/**< @brief snapalloc db to use.  */
+  char * db_orig;	/**< @brief snapalloc db to use original value given at command line.  */
+  const char *db_help; /**< @brief snapalloc db to use help description.  */
   int server_flag;	/**< @brief run as a server sending/recieving json on stdio (default=off).  */
   const char *server_help; /**< @brief run as a server sending/recieving json on stdio help description.  */
+  char ** arg_arg;	/**< @brief argument sent to the interpreter.  */
+  char ** arg_orig;	/**< @brief argument sent to the interpreter original value given at command line.  */
+  unsigned int arg_min; /**< @brief argument sent to the interpreter's minimum occurreces */
+  unsigned int arg_max; /**< @brief argument sent to the interpreter's maximum occurreces */
+  const char *arg_help; /**< @brief argument sent to the interpreter help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
@@ -60,6 +65,7 @@ struct gengetopt_args_info
   unsigned int eval_given ;	/**< @brief Whether eval was given.  */
   unsigned int db_given ;	/**< @brief Whether db was given.  */
   unsigned int server_given ;	/**< @brief Whether server was given.  */
+  unsigned int arg_given ;	/**< @brief Whether arg was given.  */
 
 } ;
 

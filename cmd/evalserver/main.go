@@ -23,8 +23,9 @@ func init() {
 }
 
 type query struct {
-	Code string `json:"code"`
-	Seq  string `json:"seq"`
+	Code string                 `json:"code"`
+	Args map[string]interface{} `json:"args"`
+	Seq  string                 `json:"seq"`
 }
 
 type queryResult struct {
@@ -129,6 +130,10 @@ func parseQuery(w http.ResponseWriter, r *http.Request) (*query, bool) {
 			return nil, false
 		}
 
+		if q.Args == nil {
+			q.Args = map[string]interface{}{}
+		}
+
 		return &q, true
 	}
 
@@ -141,6 +146,7 @@ func parseQuery(w http.ResponseWriter, r *http.Request) (*query, bool) {
 	q := &query{
 		Code: r.FormValue("code"),
 		Seq:  r.FormValue("seq"),
+		Args: map[string]interface{}{},
 	}
 
 	return q, true
