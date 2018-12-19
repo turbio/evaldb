@@ -160,7 +160,7 @@ void page_swap(struct heap_header *heap, struct page *p1, struct page *p2) {
   }
 }
 
-struct segment_slot {
+struct tree_slot {
   int index;
   struct generation *target;
 };
@@ -168,7 +168,7 @@ struct segment_slot {
 int first_free_slot(struct node *n, void *d) {
   if (n->type == SNAP_NODE_GENERATION) {
     struct generation *g = (struct generation *)n;
-    struct segment_slot *slot = d;
+    struct tree_slot *slot = d;
 
     for (int i = 0; i < GENERATION_CHILDREN; i++) {
       if (!g->c[i]) {
@@ -202,6 +202,31 @@ int find_parent(struct node *n, void *d) {
   }
 
   return WALK_CONTINUE;
+}
+
+struct generation *new_gen(struct heap_header *h, int index) {
+  struct generation *new = ++h->last_gen;
+
+  *new = (struct generation){
+      .i = {.type = SNAP_NODE_GENERATION, .committed = 0},
+      .gen = index,
+      .c = {0},
+  };
+
+  return new;
+}
+
+// gen_new_gen will free up space on a generation by creating a child and moving
+// half its children to said child.
+void gen_new_gen(struct heap_header *heap, struct generation *parent) {
+  struct generation *child = new_gen(heap, parent->gen);
+
+  int i = 0;
+  for (; i <= GENERATION_CHILDREN / 2; i++) {
+    child->c[i] = parent->c[GENERATION_CHILDREN - i];
+    parent->c[i] = NULL;
+  }
+  parent->c[i] = (struct node *)child;
 }
 
 struct heap_header *segv_handle_heap;
@@ -258,8 +283,14 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
 
   struct page *new_page = page_copy(heap, hit_page);
 
-  struct segment_slot slot = {.index = -1, .target = NULL};
+  struct tree_slot slot = {.index = -1, .target = NULL};
   walk_nodes((struct node *)heap->working, first_free_slot, &slot);
+
+  if (slot.target == NULL) {
+    gen_new_gen(heap, heap->working);
+    slot = (struct tree_slot){.index = -1, .target = NULL};
+    walk_nodes((struct node *)heap->committed, first_free_slot, &slot);
+  }
 
   // TODO(turbio): this needs to create children sometimes
   assert(slot.target != NULL);
@@ -433,18 +464,6 @@ int snap_commit(struct heap_header *heap) {
   return heap->committed->gen;
 }
 
-struct generation *new_gen(struct heap_header *h, int index) {
-  struct generation *new = ++h->last_gen;
-
-  *new = (struct generation){
-      .i = {.type = SNAP_NODE_GENERATION, .committed = 0},
-      .gen = index,
-      .c = {0},
-  };
-
-  return new;
-}
-
 struct up_to_gen_state {
   int max_gen;
   struct page *p[100];
@@ -573,8 +592,15 @@ int snap_begin_mut(struct heap_header *heap) {
       heap->working->gen,
       (void *)heap->working);
 
-  struct segment_slot slot = {.index = -1, .target = NULL};
+  struct tree_slot slot = {.index = -1, .target = NULL};
   walk_nodes((struct node *)heap->committed, first_free_slot, &slot);
+
+  if (slot.target == NULL) {
+    gen_new_gen(heap, heap->committed);
+    slot = (struct tree_slot){.index = -1, .target = NULL};
+    walk_nodes((struct node *)heap->committed, first_free_slot, &slot);
+  }
+
   assert(slot.target != NULL);
   assert(slot.index != -1);
 
@@ -677,8 +703,15 @@ void *snap_malloc(struct heap_header *heap, size_t bytes) {
   walk_nodes((struct node *)g, first_page_fit, &fit);
 
   if (fit.p == NULL) {
-    struct segment_slot slot = {.index = -1, .target = NULL};
+    struct tree_slot slot = {.index = -1, .target = NULL};
     walk_nodes((struct node *)g, first_free_slot, &slot);
+
+    if (slot.target == NULL) {
+      gen_new_gen(heap, g);
+      slot = (struct tree_slot){.index = -1, .target = NULL};
+      walk_nodes((struct node *)heap->committed, first_free_slot, &slot);
+    }
+
     assert(slot.target != NULL);
     assert(slot.index != -1);
 
