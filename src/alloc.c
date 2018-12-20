@@ -218,15 +218,23 @@ struct generation *new_gen(struct heap_header *h, int index) {
 
 // gen_new_gen will free up space on a generation by creating a child and moving
 // half its children to said child.
-void gen_new_gen(struct heap_header *heap, struct generation *parent) {
+struct generation *
+gen_new_gen(struct heap_header *heap, struct generation *parent) {
   struct generation *child = new_gen(heap, parent->gen);
+  child->i.committed = parent->i.committed;
 
-  int i = 0;
-  for (; i <= GENERATION_CHILDREN / 2; i++) {
-    child->c[i] = parent->c[GENERATION_CHILDREN - i];
-    parent->c[i] = NULL;
+  int end = GENERATION_CHILDREN - 1;
+
+  for (int i = 0; i <= GENERATION_CHILDREN / 2; i++) {
+    child->c[i] = parent->c[end - i];
+    parent->c[end - i] = NULL;
+
+    if (i == GENERATION_CHILDREN / 2) {
+      parent->c[i] = (struct node *)child;
+    }
   }
-  parent->c[i] = (struct node *)child;
+
+  return child;
 }
 
 struct heap_header *segv_handle_heap;
@@ -287,7 +295,10 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   walk_nodes((struct node *)heap->working, first_free_slot, &slot);
 
   if (slot.target == NULL) {
+    fprintf(stderr, "did one of those fancy moves\n");
+
     gen_new_gen(heap, heap->working);
+
     slot = (struct tree_slot){.index = -1, .target = NULL};
     walk_nodes((struct node *)heap->committed, first_free_slot, &slot);
   }
@@ -304,10 +315,11 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
 
   fprintf(
       stderr,
-      "! hit %p, marked %p-%p\n",
+      "! hit %p, duplicated %p-%p to %p\n",
       addr,
       (void *)hit_page,
-      (char *)hit_page + PAGE_SIZE - 1);
+      (char *)hit_page + PAGE_SIZE - 1,
+      (void *)new_page);
 
   handling_segv = NULL;
 }
@@ -432,6 +444,8 @@ void verify_all_committed(struct heap_header *heap) {
       .count = 0,
   };
   walk_nodes((struct node *)heap->root, flag_non_commit, (void *)&status);
+
+  fprintf(stderr, "node %p not committed\n", (void *)status.addr);
 
   assert(status.addr == 0);
 }
@@ -703,10 +717,14 @@ void *snap_malloc(struct heap_header *heap, size_t bytes) {
   walk_nodes((struct node *)g, first_page_fit, &fit);
 
   if (fit.p == NULL) {
+    fprintf(stderr, "couldn't find available page fit for size %ld\n", bytes);
+
     struct tree_slot slot = {.index = -1, .target = NULL};
     walk_nodes((struct node *)g, first_free_slot, &slot);
 
     if (slot.target == NULL) {
+      fprintf(stderr, "couldn't find available slot, being fancy\n");
+
       gen_new_gen(heap, g);
       slot = (struct tree_slot){.index = -1, .target = NULL};
       walk_nodes((struct node *)heap->committed, first_free_slot, &slot);
@@ -720,10 +738,11 @@ void *snap_malloc(struct heap_header *heap, size_t bytes) {
 
     fit = (struct page_fit){.size = bytes, .p = NULL};
     walk_nodes((struct node *)g, first_page_fit, &fit);
+
+    fprintf(stderr, "re-finding fit\n");
   }
 
   assert(fit.p != NULL);
-
   assert(fit.p->i.type == SNAP_NODE_PAGE);
 
   struct segment *s = page_new_segment(fit.p, bytes);
