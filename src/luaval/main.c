@@ -204,13 +204,13 @@ const char *lreader(lua_State *L, void *data, size_t *size) {
   return data;
 }
 
-int run_for(
+void run_for(
     struct heap_header *heap,
     lua_State *L,
     const char *code,
     json_t *args,
     json_t **result,
-    char *errmsg) {
+    json_t **errmsg) {
   assert(lua_gettop(L) == 0);
 
   int error;
@@ -246,7 +246,7 @@ int run_for(
   fprintf(stderr, "evaling: \"%s\"\n", code_gen);
   error = lua_load(L, lreader, (void *)code_gen, "eval", "t");
   if (error) {
-    sprintf(errmsg, "%s", lua_tostring(L, -1));
+    *errmsg = json_string(lua_tostring(L, -1));
     lua_pop(L, 1);
     goto abort;
   }
@@ -264,19 +264,19 @@ int run_for(
 
   error = lua_pcall(L, argc, 1, 0);
   if (error) {
-    sprintf(errmsg, "%s", lua_tostring(L, -1));
+    *errmsg = marshal(L, 1, 0);
+
     lua_pop(L, 1);
     goto abort;
   }
 
   *result = marshal(L, 1, 0);
   lua_pop(L, 1);
-  assert(lua_gettop(L) == 0);
 
 abort:
   // lua_gc(L, LUA_GCCOLLECT, 0);
 
-  return !!error;
+  assert(lua_gettop(L) == 0);
 }
 
 void walk_generations(struct snap_generation *g) {
@@ -372,18 +372,19 @@ int main(int argc, char *argv[]) {
       json_object_set(interp_args, args.arg_arg[i], v);
     }
 
-    char buff[4096];
-
-    json_t *r;
+    json_t *result = NULL;
+    json_t *err = NULL;
 
     snap_begin_mut(heap);
 
-    if (run_for(heap, L, args.eval_arg, interp_args, &r, buff)) {
+    run_for(heap, L, args.eval_arg, interp_args, &result, &err);
+
+    if (err) {
       fputs("error:", stdout);
-      fputs(buff, stdout);
+      fputs(json_dumps(err, JSON_ENCODE_ANY), stdout);
       fputs("\n", stdout);
     } else {
-      fputs(json_dumps(r, JSON_ENCODE_ANY), stdout);
+      fputs(json_dumps(result, JSON_ENCODE_ANY), stdout);
       fputs("\n", stdout);
     }
 
@@ -425,20 +426,19 @@ int main(int argc, char *argv[]) {
 
     const char *code_str = json_string_value(code);
 
-    char errbuff[4096];
-
-    json_t *result;
+    json_t *result = NULL;
+    json_t *err = NULL;
 
     snap_begin_mut(heap);
 
-    int err = run_for(heap, L, code_str, args, &result, errbuff);
+    run_for(heap, L, code_str, args, &result, &err);
 
     snap_commit(heap);
 
     json_t *qr = json_object();
 
     if (err) {
-      json_object_set(qr, "error", json_string(errbuff));
+      json_object_set(qr, "error", err);
     } else {
       json_object_set(qr, "object", result);
     }

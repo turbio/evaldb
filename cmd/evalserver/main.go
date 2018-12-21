@@ -30,7 +30,7 @@ type query struct {
 
 type queryResult struct {
 	Object   interface{} `json:"object"`
-	Error    string      `json:"error,omitempty"`
+	Error    interface{} `json:"error,omitempty"`
 	Warm     bool        `json:"warm"`
 	WallTime uint64      `json:"walltime"`
 	Seq      string      `json:"seq"`
