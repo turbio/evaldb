@@ -20,7 +20,17 @@
 #define generation snap_generation
 #define node snap_node
 
+FILE *event_log;
+
 void *open_db(const char *path, size_t size) {
+  int logfd = open("./event_log", O_CREAT | O_RDWR, 0600);
+  if (logfd == -1) {
+    fprintf(stderr, "couldn't open event log %s\n", strerror(errno));
+    return NULL;
+  }
+
+  event_log = fdopen(logfd, "a");
+
   int fd = open(path, O_CREAT | O_RDWR, 0660);
   if (fd == -1) {
     fprintf(stderr, "couldn't open db %s\n", strerror(errno));
@@ -459,6 +469,9 @@ int set_committed(struct node *n, void *d) {
 }
 
 int snap_commit(struct heap_header *heap) {
+  fprintf(event_log, "snap_commit\n");
+  fflush(event_log);
+
   fprintf(stderr, "BEGINNING COMMIT\n");
   int flagged = 0;
   walk_nodes((struct node *)heap->working, set_committed, &flagged);
@@ -595,6 +608,9 @@ void snap_checkout(struct heap_header *heap, int generation) {
 }
 
 int snap_begin_mut(struct heap_header *heap) {
+  fprintf(event_log, "snap_begin_mut\n");
+  fflush(event_log);
+
   fprintf(stderr, "BEGINNING MUT\n");
 
   assert(heap->working == heap->committed);
@@ -704,7 +720,7 @@ int first_page_fit(struct node *n, void *d) {
   return WALK_CONTINUE;
 }
 
-void *snap_malloc(struct heap_header *heap, size_t bytes) {
+void *_snap_malloc(struct heap_header *heap, size_t bytes) {
   assert(heap->working != heap->committed);
 
   struct generation *g = heap->working;
@@ -750,7 +766,7 @@ void *snap_malloc(struct heap_header *heap, size_t bytes) {
   return (char *)s + sizeof(struct segment);
 }
 
-void snap_free(struct heap_header *heap, void *ptr) {
+void _snap_free(struct heap_header *heap, void *ptr) {
   assert(heap->working != heap->committed);
 
   struct segment *l = (struct segment *)((char *)ptr - sizeof(struct segment));
@@ -758,11 +774,36 @@ void snap_free(struct heap_header *heap, void *ptr) {
   l->used = 0;
 }
 
+void *snap_malloc(struct heap_header *heap, size_t bytes) {
+  if (bytes == 0) {
+    return NULL;
+  }
+
+  fprintf(event_log, "snap_malloc %ld\n", bytes);
+  fflush(event_log);
+  return _snap_malloc(heap, bytes);
+}
+
+void snap_free(struct heap_header *heap, void *ptr) {
+  fprintf(event_log, "snap_free %p\n", ptr);
+  fflush(event_log);
+  _snap_free(heap, ptr);
+}
+
 void *snap_realloc(struct heap_header *heap, void *ptr, size_t bytes) {
+  fprintf(event_log, "snap_realloc %p %ld\n", ptr, bytes);
+  fflush(event_log);
+
   assert(heap->working != heap->committed);
 
-  void *result = snap_malloc(heap, bytes);
+  if (bytes == 0) {
+    _snap_free(heap, ptr);
+    return NULL;
+  }
+
+  void *result = _snap_malloc(heap, bytes);
   memmove(result, ptr, bytes);
-  snap_free(heap, ptr);
+  _snap_free(heap, ptr);
+
   return result;
 }

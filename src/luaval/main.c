@@ -26,8 +26,8 @@ void *lua_allocr(void *ud, void *ptr, size_t osize, size_t nsize) {
       fprintf(stderr, "   FREE %p %ld -> %ld\n", ptr, osize, nsize);
     }
 
-    free(ptr);
-    /*snap_free(heap, ptr);*/
+    /*free(ptr);*/
+    snap_free(heap, ptr);
     return NULL;
   }
 
@@ -36,16 +36,16 @@ void *lua_allocr(void *ud, void *ptr, size_t osize, size_t nsize) {
       fprintf(stderr, "REALLOC %p %ld -> %ld\n", ptr, osize, nsize);
     }
 
-    return realloc(ptr, nsize);
-    /*return snap_realloc(heap, ptr, nsize);*/
+    /*return realloc(ptr, nsize);*/
+    return snap_realloc(heap, ptr, nsize);
   }
 
   if (log_alloc) {
     fprintf(stderr, "  ALLOC %ld\n", nsize);
   }
 
-  return malloc(nsize);
-  /*return snap_malloc(heap, nsize);*/
+  /*return malloc(nsize);*/
+  return snap_malloc(heap, nsize);
 }
 
 void unmarshal(lua_State *L, json_t *v) {
