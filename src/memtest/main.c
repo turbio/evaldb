@@ -5,11 +5,11 @@
 
 #include "../alloc.h"
 
-#define used_ch (char)(0xff)
-#define free_ch (char)(0xff)
+#define used_ch (uint8_t)(0xff)
+#define free_ch (uint8_t)(0xff)
 
 struct tracked_alloc {
-  char *ptr;
+  uint8_t *ptr;
   int size;
   char used;
 };
@@ -42,7 +42,7 @@ int main(int argc, char *argv[]) {
 
       printf("%s(%ld)\n", buff, size);
 
-      char *ptr = (char *)snap_malloc(heap, size);
+      uint8_t *ptr = (uint8_t *)snap_malloc(heap, size);
 
       memset(ptr, used_ch, size);
 
@@ -53,11 +53,9 @@ int main(int argc, char *argv[]) {
       };
 
     } else if (!strcmp(buff, "snap_free")) {
-      char *addr = (char *)strtoll(cmd_end + 1, NULL, 16);
+      uint8_t *addr = (uint8_t *)strtoll(cmd_end + 1, NULL, 16);
 
       printf("%s(%p)\n", buff, (void *)addr);
-
-      snap_free(heap, addr);
 
       int found = 0;
       for (int i = 0; i < n; i++) {
@@ -69,20 +67,23 @@ int main(int argc, char *argv[]) {
         }
       }
       assert(found);
+
+      snap_free(heap, addr);
     } else if (!strcmp(buff, "snap_realloc")) {
       char *next;
-      char *addr = (char *)strtoll(cmd_end + 1, &next, 16);
+      uint8_t *addr = (uint8_t *)strtoll(cmd_end + 1, &next, 16);
       long new_size = strtol(next, NULL, 10);
 
       printf("%s(%p, %ld)\n", buff, (void *)addr, new_size);
 
-      char *new_addr = (char *)snap_realloc(heap, addr, new_size);
+      uint8_t *new_addr = (uint8_t *)snap_realloc(heap, addr, new_size);
 
       int found = 0;
       for (int i = 0; i < n; i++) {
         if (allocs[i].ptr == addr) {
           found = 1;
           allocs[i].size = new_size;
+          allocs[i].ptr = new_addr;
           memset(new_addr, used_ch, allocs[i].size);
           break;
         }
@@ -101,10 +102,13 @@ int main(int argc, char *argv[]) {
 
       for (int j = 0; j < a.size; j++) {
         if (a.used && a.ptr[j] != used_ch) {
-          printf("unused check failed %d != %d", a.ptr[j], used_ch);
-          exit(1);
-        } else if (a.ptr[j] != free_ch) {
-          printf("unused check failed %d != %d", a.ptr[j], free_ch);
+          printf(
+              "section %p - %p (%d)\n",
+              (void *)a.ptr,
+              (void *)a.ptr + a.size,
+              a.size);
+          printf("at %p\n", (void *)a.ptr + j);
+          printf("used check failed %d != %d", a.ptr[j], used_ch);
           exit(1);
         }
       }
