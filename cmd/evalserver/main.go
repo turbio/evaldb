@@ -152,6 +152,49 @@ func parseQuery(w http.ResponseWriter, r *http.Request) (*query, bool) {
 	return q, true
 }
 
+func memgraph(w http.ResponseWriter, r *http.Request) {
+
+	renderer := exec.Command("dot", "-Tsvg")
+	grapher := exec.Command("./memgraph", "-d", "./db/__"+defaultDB)
+
+	if r.URL.Query().Get("labels") != "" {
+		grapher.Args = append(grapher.Args, "-l")
+	}
+
+	if r.URL.Query().Get("segments") != "" {
+		grapher.Args = append(grapher.Args, "-s")
+	}
+
+	renderer.Stdin, _ = grapher.StdoutPipe()
+	renderer.Stdout = w
+
+	w.Header().Set("content-type", "image/svg+xml")
+
+	err := grapher.Start()
+	if err != nil {
+		log.Println(err)
+		w.WriteHeader(500)
+	}
+
+	err = renderer.Start()
+	if err != nil {
+		log.Println(err)
+		w.WriteHeader(500)
+	}
+
+	err = grapher.Wait()
+	if err != nil {
+		log.Println(err)
+		w.WriteHeader(500)
+	}
+
+	err = renderer.Wait()
+	if err != nil {
+		log.Println(err)
+		w.WriteHeader(500)
+	}
+}
+
 func eval(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set(
@@ -254,6 +297,7 @@ func main() {
 	}
 
 	http.HandleFunc("/eval", eval)
+	http.HandleFunc("/memgraph.svg", memgraph)
 	http.Handle("/", http.FileServer(http.Dir("./client")))
 
 	fmt.Println(strings.Repeat("=", 50))

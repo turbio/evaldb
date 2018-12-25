@@ -24,8 +24,10 @@ int main(int argc, char *argv[]) {
 
   struct heap_header *heap = snap_init(argv, argv[1]);
 
-  struct tracked_alloc allocs[1000] = {};
+  struct tracked_alloc allocs[1000];
   int n = 0;
+
+  int index = 0;
 
   char buff[1000];
   while (fgets(buff, 1000, log)) {
@@ -38,11 +40,30 @@ int main(int argc, char *argv[]) {
     }
 
     if (!strcmp(buff, "snap_malloc")) {
-      long size = strtol(cmd_end + 1, NULL, 10);
+      char *at = NULL;
+      long size = strtol(cmd_end + 1, &at, 10);
 
-      printf("%s(%ld)\n", buff, size);
+      at = strstr(at, "-> ") + strlen("-> ");
+
+      void *expected_addr = (void *)strtoll(at, NULL, 16);
+
+      fprintf(
+          stderr,
+          "%3d. expect: %s(%ld) -> %p\n",
+          index,
+          buff,
+          size,
+          expected_addr);
 
       uint8_t *ptr = (uint8_t *)snap_malloc(heap, size);
+
+      fprintf(stderr, "     receiv: %s(%ld) -> %p\n", buff, size, (void *)ptr);
+
+      if (expected_addr != ptr) {
+        fprintf(stderr, "bad result: %p != %p\n", ptr, expected_addr);
+      }
+
+      assert(expected_addr == ptr);
 
       memset(ptr, used_ch, size);
 
@@ -55,7 +76,7 @@ int main(int argc, char *argv[]) {
     } else if (!strcmp(buff, "snap_free")) {
       uint8_t *addr = (uint8_t *)strtoll(cmd_end + 1, NULL, 16);
 
-      printf("%s(%p)\n", buff, (void *)addr);
+      fprintf(stderr, "%s(%p)\n", buff, (void *)addr);
 
       int found = 0;
       for (int i = 0; i < n; i++) {
@@ -74,9 +95,15 @@ int main(int argc, char *argv[]) {
       uint8_t *addr = (uint8_t *)strtoll(cmd_end + 1, &next, 16);
       long new_size = strtol(next, NULL, 10);
 
-      printf("%s(%p, %ld)\n", buff, (void *)addr, new_size);
-
       uint8_t *new_addr = (uint8_t *)snap_realloc(heap, addr, new_size);
+
+      fprintf(
+          stderr,
+          "%s(%p, %ld) -> %p\n",
+          buff,
+          (void *)addr,
+          new_size,
+          (void *)new_addr);
 
       int found = 0;
       for (int i = 0; i < n; i++) {
@@ -91,9 +118,13 @@ int main(int argc, char *argv[]) {
       assert(found);
 
     } else if (!strcmp(buff, "snap_begin_mut")) {
+      fprintf(stderr, "%s()\n", buff);
+      snap_begin_mut(heap);
     } else if (!strcmp(buff, "snap_commit")) {
+      fprintf(stderr, "%s()\n", buff);
+      snap_commit(heap);
     } else {
-      printf("unknown command %s\n", buff);
+      fprintf(stderr, "unknown command %s\n", buff);
       break;
     }
 
@@ -102,16 +133,19 @@ int main(int argc, char *argv[]) {
 
       for (int j = 0; j < a.size; j++) {
         if (a.used && a.ptr[j] != used_ch) {
-          printf(
+          fprintf(
+              stderr,
               "section %p - %p (%d)\n",
               (void *)a.ptr,
               (void *)a.ptr + a.size,
               a.size);
-          printf("at %p\n", (void *)a.ptr + j);
-          printf("used check failed %d != %d", a.ptr[j], used_ch);
+          fprintf(stderr, "at %p\n", (void *)a.ptr + j);
+          fprintf(stderr, "used check failed %d != %d", a.ptr[j], used_ch);
           exit(1);
         }
       }
     }
+
+    index++;
   }
 }
