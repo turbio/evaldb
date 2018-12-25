@@ -145,12 +145,6 @@ json_t *marshal(lua_State *L, int index, int depth) {
 
       lua_pushnil(L);
       while (lua_next(L, index) != 0) {
-        fprintf(
-            stderr,
-            "%s - %s\n",
-            lua_typename(L, lua_type(L, -2)),
-            lua_typename(L, lua_type(L, -1)));
-
         const char *key;
 
         if (lua_type(L, -2) == LUA_TSTRING) {
@@ -233,9 +227,6 @@ void run_for(
     strcat(preamble, "=...\n");
   }
 
-  fprintf(stderr, "preamble \"%s\"\n", preamble);
-  fprintf(stderr, "code \"%s\"\n", code);
-
   char *code_gen = (char *)malloc(strlen(code) + strlen(preamble) + 1);
 
   strcpy(code_gen, preamble);
@@ -243,7 +234,6 @@ void run_for(
 
   did_read = 0;
 
-  fprintf(stderr, "evaling: \"%s\"\n", code_gen);
   error = lua_load(L, lreader, (void *)code_gen, "eval", "t");
   if (error) {
     *errmsg = json_string(lua_tostring(L, -1));

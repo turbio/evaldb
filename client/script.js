@@ -16,7 +16,9 @@ function handleSubmit(entry) {
   query(q.val(), function(result) {
     var resultEntry;
     if (result.error) {
-      var resultEntry = $('<div class="entry error"></div>').text(result.error);
+      var resultEntry = $('<div class="entry error"></div>').text(
+        JSON.stringify(result.error, null, 2),
+      );
       entry
         .parent()
         .append($('<div class="timeline fork"></div>').append(resultEntry));

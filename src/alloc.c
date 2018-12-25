@@ -20,16 +20,20 @@
 #define generation snap_generation
 #define node snap_node
 
+#ifdef SNAP_EVENT_LOG_FILE
 FILE *event_log;
+#endif
 
 void *open_db(const char *path, size_t size) {
-  int logfd = open("./event_log", O_CREAT | O_RDWR, 0600);
+#ifdef SNAP_EVENT_LOG_FILE
+  int logfd = open(SNAP_EVENT_LOG_FILE, O_CREAT | O_RDWR, 0600);
   if (logfd == -1) {
     fprintf(stderr, "couldn't open event log %s\n", strerror(errno));
     return NULL;
   }
 
   event_log = fdopen(logfd, "a");
+#endif
 
   int fd = open(path, O_CREAT | O_RDWR, 0660);
   if (fd == -1) {
@@ -70,22 +74,7 @@ void *round_page_up(void *addr) {
   return addr;
 }
 
-struct page *new_page(struct heap_header *heap, size_t pages) {
-  struct page *f = heap->last_page =
-      (struct page
-           *)((char *)heap->last_page + (heap->last_page->pages * PAGE_SIZE));
-
-  *f = (struct page){
-      .i = {.type = SNAP_NODE_PAGE, .committed = 0},
-      .pages = pages,
-      .len = 0,
-      .real_addr = f,
-  };
-
-  return f;
-}
-
-enum {
+enum walk_action {
   WALK_CONTINUE = 0,
   WALK_EXIT = 1,
   WALK_SKIP = 2,
@@ -113,6 +102,143 @@ int walk_nodes(struct node *n, int (*cb)(struct node *, void *), void *d) {
   return WALK_CONTINUE;
 }
 
+struct page_from_hit {
+  void *hit;
+  struct page *p;
+  int index;
+};
+int find_page(struct node *n, void *d) {
+  if (n->type == SNAP_NODE_PAGE) {
+    struct page *p = (struct page *)n;
+    struct page_from_hit *phit = (struct page_from_hit *)d;
+
+    if (phit->hit >= (void *)((char *)p + sizeof(struct page)) &&
+        phit->hit < (void *)((char *)p + (PAGE_SIZE * p->pages))) {
+      phit->p = p;
+
+      for (int i = 0; i < p->len; i++) {
+        struct segment *s = p->c[i];
+        // TODO(mason): revisit this
+        // if ((void *)phit->hit >= (void *)((char *)s + sizeof(struct segment))
+        // && (void *)phit->hit < (void *)((char *)s + sizeof(struct segment) +
+        // s->size)) {
+
+        if (phit->hit >= (void *)((char *)s) &&
+            phit->hit <
+                (void *)((char *)s + sizeof(struct segment) + s->size)) {
+          phit->index = i;
+          break;
+        }
+      }
+
+      return WALK_EXIT;
+    }
+  }
+
+  return WALK_CONTINUE;
+}
+
+struct node_rel {
+  struct node *child;
+  struct node *parent;
+  int index;
+};
+int find_parent(struct node *n, void *d) {
+  if (n->type == SNAP_NODE_GENERATION) {
+    struct generation *g = (struct generation *)n;
+    struct node_rel *l = d;
+    for (int i = 0; i < GENERATION_CHILDREN; i++) {
+      if (l->child == g->c[i]) {
+        l->parent = n;
+        l->index = i;
+        return WALK_EXIT;
+      }
+    }
+  }
+
+  return WALK_CONTINUE;
+}
+
+struct tree_slot {
+  int index;
+  struct generation *target;
+};
+int first_free_slot(struct node *n, void *d) {
+  if (n->type == SNAP_NODE_GENERATION) {
+    struct generation *g = (struct generation *)n;
+    struct tree_slot *slot = d;
+
+    for (int i = 0; i < GENERATION_CHILDREN; i++) {
+      if (!g->c[i]) {
+        slot->target = g;
+        slot->index = i;
+        return WALK_EXIT;
+      }
+    }
+  }
+
+  return WALK_CONTINUE;
+}
+
+int verify_all_committed(struct node *n, void *d) {
+  if (!n->committed) {
+    fprintf(stderr, "node %p was no committed\n", (void *)n);
+    assert(0);
+  }
+
+  return WALK_CONTINUE;
+}
+
+struct page *new_page(struct heap_header *heap, size_t pages) {
+  struct page *f = heap->last_page =
+      (struct page
+           *)((char *)heap->last_page + (heap->last_page->pages * PAGE_SIZE));
+
+  *f = (struct page){
+      .i = {.type = SNAP_NODE_PAGE, .committed = 0},
+      .pages = pages,
+      .len = 0,
+      .real_addr = f,
+  };
+
+  return f;
+}
+
+int set_readonly(struct node *n, void *d) {
+  if (n->type != SNAP_NODE_PAGE || !n->committed) {
+    return WALK_CONTINUE;
+  }
+
+  struct page *p = (struct page *)n;
+
+  if (p->real_addr != p) {
+    return WALK_CONTINUE;
+  }
+
+  fprintf(stderr, "setting RONLY on %p\n", (void *)n);
+
+  int err = mprotect((void *)p, PAGE_SIZE * p->pages, PROT_READ);
+  if (err != 0) {
+    fprintf(stderr, "failed to unmark write pages %s\n", strerror(errno));
+    fprintf(
+        stderr,
+        "%p - %p",
+        (void *)p,
+        (void *)((char *)p + (PAGE_SIZE * p->pages)));
+    exit(3);
+  }
+
+  return WALK_CONTINUE;
+}
+
+int set_committed(struct node *n, void *d) {
+  int *flagged = (int *)d;
+  (*flagged)++;
+  n->committed = 1;
+
+  return WALK_CONTINUE;
+}
+
 struct page *page_copy(struct heap_header *h, struct page *p) {
   struct page *new = new_page(h, p->pages);
   memcpy(new, p, p->pages * PAGE_SIZE);
@@ -129,7 +255,7 @@ struct page *page_copy(struct heap_header *h, struct page *p) {
 
 // TODO(turbio): just do some remapping
 void page_swap(struct heap_header *heap, struct page *p1, struct page *p2) {
-  fprintf(stderr, "swapping pages %p <-> %p\n", p1, p2);
+  fprintf(stderr, "swapping pages %p <-> %p\n", (void *)p1, (void *)p2);
 
   int err = mprotect((void *)p1, PAGE_SIZE, PROT_READ | PROT_WRITE);
   if (err != 0) {
@@ -170,50 +296,6 @@ void page_swap(struct heap_header *heap, struct page *p1, struct page *p2) {
   }
 }
 
-struct tree_slot {
-  int index;
-  struct generation *target;
-};
-
-int first_free_slot(struct node *n, void *d) {
-  if (n->type == SNAP_NODE_GENERATION) {
-    struct generation *g = (struct generation *)n;
-    struct tree_slot *slot = d;
-
-    for (int i = 0; i < GENERATION_CHILDREN; i++) {
-      if (!g->c[i]) {
-        slot->target = g;
-        slot->index = i;
-        return WALK_EXIT;
-      }
-    }
-  }
-
-  return WALK_CONTINUE;
-}
-
-struct node_rel {
-  struct node *child;
-  struct node *parent;
-  int index;
-};
-
-int find_parent(struct node *n, void *d) {
-  if (n->type == SNAP_NODE_GENERATION) {
-    struct generation *g = (struct generation *)n;
-    struct node_rel *l = d;
-    for (int i = 0; i < GENERATION_CHILDREN; i++) {
-      if (l->child == g->c[i]) {
-        l->parent = n;
-        l->index = i;
-        return WALK_EXIT;
-      }
-    }
-  }
-
-  return WALK_CONTINUE;
-}
-
 struct generation *new_gen(struct heap_header *h, int index) {
   struct generation *new = ++h->last_gen;
 
@@ -226,23 +308,19 @@ struct generation *new_gen(struct heap_header *h, int index) {
   return new;
 }
 
-// gen_new_gen will free up space on a generation by creating a child and moving
-// half its children to said child.
+// new_gen_between will free up space on a generation by creating a child and
+// moving half its children to said child.
 struct generation *
-gen_new_gen(struct heap_header *heap, struct generation *parent) {
+new_gen_between(struct heap_header *heap, struct generation *parent) {
   struct generation *child = new_gen(heap, parent->gen);
   child->i.committed = parent->i.committed;
 
-  int end = GENERATION_CHILDREN - 1;
-
-  for (int i = 0; i <= GENERATION_CHILDREN / 2; i++) {
-    child->c[i] = parent->c[end - i];
-    parent->c[end - i] = NULL;
-
-    if (i == GENERATION_CHILDREN / 2) {
-      parent->c[i] = (struct node *)child;
-    }
+  for (int i = 0; i < GENERATION_CHILDREN; i++) {
+    child->c[i] = parent->c[i];
+    parent->c[i] = NULL;
   }
+
+  parent->c[0] = (struct node *)child;
 
   return child;
 }
@@ -278,7 +356,13 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
 
   assert(heap->working != heap->committed);
 
-  struct page *hit_page = round_page_down(addr);
+  struct page_from_hit phit = {.hit = addr, .p = NULL, .index = -1};
+  walk_nodes((struct node *)heap->root, find_page, (void *)&phit);
+
+  assert(phit.p != NULL);
+  assert(phit.index != -1);
+
+  struct page *hit_page = phit.p;
 
   assert(hit_page->i.committed);
   assert(hit_page->i.type == SNAP_NODE_PAGE);
@@ -307,10 +391,10 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   if (slot.target == NULL) {
     fprintf(stderr, "did one of those fancy moves\n");
 
-    gen_new_gen(heap, heap->working);
+    new_gen_between(heap, heap->working);
 
     slot = (struct tree_slot){.index = -1, .target = NULL};
-    walk_nodes((struct node *)heap->committed, first_free_slot, &slot);
+    walk_nodes((struct node *)heap->working, first_free_slot, &slot);
   }
 
   // TODO(turbio): this needs to create children sometimes
@@ -332,33 +416,6 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
       (void *)new_page);
 
   handling_segv = NULL;
-}
-
-int set_readonly(struct node *n, void *d) {
-  if (n->type != SNAP_NODE_PAGE || !n->committed) {
-    return WALK_CONTINUE;
-  }
-
-  struct page *p = (struct page *)n;
-
-  if (p->real_addr != p) {
-    return WALK_CONTINUE;
-  }
-
-  fprintf(stderr, "setting RONLY on %p\n", (void *)n);
-
-  int err = mprotect((void *)p, PAGE_SIZE * p->pages, PROT_READ);
-  if (err != 0) {
-    fprintf(stderr, "failed to unmark write pages %s\n", strerror(errno));
-    fprintf(
-        stderr,
-        "%p - %p",
-        (void *)p,
-        (void *)((char *)p + (PAGE_SIZE * p->pages)));
-    exit(3);
-  }
-
-  return WALK_CONTINUE;
 }
 
 struct heap_header *snap_init(char *argv[], char *db_path) {
@@ -431,46 +488,11 @@ struct heap_header *snap_init(char *argv[], char *db_path) {
   return heap;
 }
 
-struct non_commit_status {
-  void *addr;
-  int count;
-};
-
-int flag_non_commit(struct node *n, void *d) {
-  struct non_commit_status *status = (struct non_commit_status *)d;
-  if (!n->committed) {
-    status->count++;
-    if (!status->addr) {
-      status->addr = n;
-    }
-  }
-
-  return WALK_CONTINUE;
-}
-
-void verify_all_committed(struct heap_header *heap) {
-  struct non_commit_status status = {
-      .addr = NULL,
-      .count = 0,
-  };
-  walk_nodes((struct node *)heap->root, flag_non_commit, (void *)&status);
-
-  fprintf(stderr, "node %p not committed\n", (void *)status.addr);
-
-  assert(status.addr == 0);
-}
-
-int set_committed(struct node *n, void *d) {
-  int *flagged = (int *)d;
-  (*flagged)++;
-  n->committed = 1;
-
-  return WALK_CONTINUE;
-}
-
 int snap_commit(struct heap_header *heap) {
+#ifdef SNAP_EVENT_LOG_FILE
   fprintf(event_log, "snap_commit\n");
   fflush(event_log);
+#endif
 
   fprintf(stderr, "BEGINNING COMMIT\n");
   int flagged = 0;
@@ -481,7 +503,7 @@ int snap_commit(struct heap_header *heap) {
 
   fprintf(stderr, "SETTING READONLY\n");
 
-  verify_all_committed(heap);
+  walk_nodes((struct node *)heap->root, verify_all_committed, NULL);
   fprintf(stderr, "UPDATING COMMIT BIT\n");
 
   heap->committed = heap->working;
@@ -495,7 +517,6 @@ struct up_to_gen_state {
   int max_gen;
   struct page *p[100];
 };
-
 int pages_up_to_gen(struct node *n, void *d) {
   struct up_to_gen_state *s = (struct up_to_gen_state *)d;
 
@@ -531,7 +552,6 @@ struct gen_from_id {
   int id;
   struct generation *g;
 };
-
 int first_gen_for_id(struct node *n, void *d) {
   if (n->type == SNAP_NODE_GENERATION) {
     struct generation *g = (struct generation *)n;
@@ -608,13 +628,15 @@ void snap_checkout(struct heap_header *heap, int generation) {
 }
 
 int snap_begin_mut(struct heap_header *heap) {
+#ifdef SNAP_EVENT_LOG_FILE
   fprintf(event_log, "snap_begin_mut\n");
   fflush(event_log);
+#endif
 
   fprintf(stderr, "BEGINNING MUT\n");
 
   assert(heap->working == heap->committed);
-  verify_all_committed(heap);
+  walk_nodes((struct node *)heap->root, verify_all_committed, NULL);
 
   fprintf(
       stderr,
@@ -626,7 +648,7 @@ int snap_begin_mut(struct heap_header *heap) {
   walk_nodes((struct node *)heap->committed, first_free_slot, &slot);
 
   if (slot.target == NULL) {
-    gen_new_gen(heap, heap->committed);
+    new_gen_between(heap, heap->committed);
     slot = (struct tree_slot){.index = -1, .target = NULL};
     walk_nodes((struct node *)heap->committed, first_free_slot, &slot);
   }
@@ -661,8 +683,8 @@ void *page_data_start(struct page *p) {
 
 // can the page fit an additional segment of size n
 int page_can_fit(struct page *p, size_t n) {
-  return ((char *)page_data_start(p) - (char *)page_head_end(p)) >
-         (n + sizeof(void *) + sizeof(struct segment));
+  return (char *)((char *)page_data_start(p) - (char *)page_head_end(p)) >
+         (char *)((n + sizeof(void *) + sizeof(struct segment)));
 }
 
 struct segment *page_new_segment(struct page *p, size_t bytes) {
@@ -688,7 +710,6 @@ struct gen_match_info {
   int target;
   struct generation *mismatch;
 };
-
 int all_gen_match(struct node *n, void *d) {
   if (n->type == SNAP_NODE_GENERATION) {
     struct gen_match_info *info = d;
@@ -706,7 +727,6 @@ struct page_fit {
   size_t size;
   struct page *p;
 };
-
 int first_page_fit(struct node *n, void *d) {
   if (n->type == SNAP_NODE_PAGE) {
     struct page *p = (struct page *)n;
@@ -733,17 +753,13 @@ void *_snap_malloc(struct heap_header *heap, size_t bytes) {
   walk_nodes((struct node *)g, first_page_fit, &fit);
 
   if (fit.p == NULL) {
-    fprintf(stderr, "couldn't find available page fit for size %ld\n", bytes);
-
     struct tree_slot slot = {.index = -1, .target = NULL};
     walk_nodes((struct node *)g, first_free_slot, &slot);
 
     if (slot.target == NULL) {
-      fprintf(stderr, "couldn't find available slot, being fancy\n");
-
-      gen_new_gen(heap, g);
+      new_gen_between(heap, g);
       slot = (struct tree_slot){.index = -1, .target = NULL};
-      walk_nodes((struct node *)heap->committed, first_free_slot, &slot);
+      walk_nodes((struct node *)heap->working, first_free_slot, &slot);
     }
 
     assert(slot.target != NULL);
@@ -754,8 +770,6 @@ void *_snap_malloc(struct heap_header *heap, size_t bytes) {
 
     fit = (struct page_fit){.size = bytes, .p = NULL};
     walk_nodes((struct node *)g, first_page_fit, &fit);
-
-    fprintf(stderr, "re-finding fit\n");
   }
 
   assert(fit.p != NULL);
@@ -769,9 +783,15 @@ void *_snap_malloc(struct heap_header *heap, size_t bytes) {
 void _snap_free(struct heap_header *heap, void *ptr) {
   assert(heap->working != heap->committed);
 
-  struct segment *l = (struct segment *)((char *)ptr - sizeof(struct segment));
-  assert(l->used);
-  l->used = 0;
+  struct segment *s = (struct segment *)((char *)ptr - sizeof(struct segment));
+  assert(s->used);
+
+  struct page_from_hit phit = {.hit = ptr, .p = NULL, .index = -1};
+  walk_nodes((struct node *)heap->root, find_page, (void *)&phit);
+  assert(phit.p != NULL);
+  assert(phit.index != -1);
+
+  s->used = 0;
 }
 
 void *snap_malloc(struct heap_header *heap, size_t bytes) {
@@ -779,22 +799,32 @@ void *snap_malloc(struct heap_header *heap, size_t bytes) {
     return NULL;
   }
 
-  fprintf(event_log, "snap_malloc %ld\n", bytes);
+  void *result = _snap_malloc(heap, bytes);
+
+#ifdef SNAP_EVENT_LOG_FILE
+  fprintf(event_log, "snap_malloc %ld -> %p\n", bytes, result);
   fflush(event_log);
-  return _snap_malloc(heap, bytes);
+#endif
+
+  return result;
 }
 
 void snap_free(struct heap_header *heap, void *ptr) {
+#ifdef SNAP_EVENT_LOG_FILE
   fprintf(event_log, "snap_free %p\n", ptr);
   fflush(event_log);
+#endif
+
   _snap_free(heap, ptr);
 }
 
 void *snap_realloc(struct heap_header *heap, void *ptr, size_t bytes) {
-  fprintf(event_log, "snap_realloc %p %ld\n", ptr, bytes);
-  fflush(event_log);
-
   assert(heap->working != heap->committed);
+
+  struct page_from_hit phit = {.hit = ptr, .p = NULL, .index = -1};
+  walk_nodes((struct node *)heap->root, find_page, (void *)&phit);
+  assert(phit.p != NULL);
+  assert(phit.index != -1);
 
   if (bytes == 0) {
     _snap_free(heap, ptr);
@@ -804,6 +834,11 @@ void *snap_realloc(struct heap_header *heap, void *ptr, size_t bytes) {
   void *result = _snap_malloc(heap, bytes);
   memmove(result, ptr, bytes);
   _snap_free(heap, ptr);
+
+#ifdef SNAP_EVENT_LOG_FILE
+  fprintf(event_log, "snap_realloc %p %ld -> %p\n", ptr, bytes, result);
+  fflush(event_log);
+#endif
 
   return result;
 }
