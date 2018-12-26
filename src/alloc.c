@@ -354,18 +354,22 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
     exit(2);
   }
 
+  fprintf(stderr, "! hit %p\n", addr);
+
   assert(heap->working != heap->committed);
 
   struct page_from_hit phit = {.hit = addr, .p = NULL, .index = -1};
   walk_nodes((struct node *)heap->root, find_page, (void *)&phit);
+
+  fprintf(stderr, "! turns out the is %p\n", (void *)phit.p);
 
   assert(phit.p != NULL);
   assert(phit.index != -1);
 
   struct page *hit_page = phit.p;
 
-  assert(hit_page->i.committed);
   assert(hit_page->i.type == SNAP_NODE_PAGE);
+  assert(hit_page->i.committed);
 
   int err = mprotect((void *)hit_page, PAGE_SIZE, PROT_READ | PROT_WRITE);
   if (err != 0) {
@@ -409,8 +413,7 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
 
   fprintf(
       stderr,
-      "! hit %p, duplicated %p-%p to %p\n",
-      addr,
+      "! duplicated %p-%p to %p\n",
       (void *)hit_page,
       (char *)hit_page + PAGE_SIZE - 1,
       (void *)new_page);
