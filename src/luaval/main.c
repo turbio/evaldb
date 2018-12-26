@@ -334,6 +334,9 @@ int main(int argc, char *argv[]) {
     luaL_requiref(L, "bit32", luaopen_bit32, 1);
     lua_pop(L, 1);
 
+    luaL_requiref(L, "os", luaopen_os, 1);
+    lua_pop(L, 1);
+
     luaL_requiref(L, "utf8", luaopen_utf8, 1);
     lua_pop(L, 1);
 
