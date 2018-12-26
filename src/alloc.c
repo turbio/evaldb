@@ -371,7 +371,8 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   assert(hit_page->i.type == SNAP_NODE_PAGE);
   assert(hit_page->i.committed);
 
-  int err = mprotect((void *)hit_page, PAGE_SIZE, PROT_READ | PROT_WRITE);
+  int err = mprotect(
+      (void *)hit_page, hit_page->pages * PAGE_SIZE, PROT_READ | PROT_WRITE);
   if (err != 0) {
     fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
     exit(3);
