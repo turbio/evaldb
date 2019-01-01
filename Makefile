@@ -2,20 +2,20 @@ TOPDIR     := .
 SRCDIR     := $(TOPDIR)/src
 
 CC         := gcc
-#CFLAGS    := -std=c++11 -O2 -Wall -Wextra -pipe -I./include -fno-rtti -fpic
-#V8_LIBS   := -L./lib -lv8_libplatform -lv8_base -lv8_init -lv8_initializers -lv8_libbase -lv8_libsampler -lv8_nosnapshot -lv8_snapshot
-#LDFLAGS   := -lstdc++ -lboost_system -pthread -lm -lcriu $(V8_LIBS)
 
-LUACFLAGS  := -I./vendor/lua-5.3.5/src $(shell pkg-config --cflags jansson)
-LUALDFLAGS := -L./vendor/lua-5.3.5/src -llua $(shell pkg-config --libs jansson)
+LUACFLAGS  := -I./vendor/lua-5.3.5/src
+LUALDFLAGS := -L./vendor/lua-5.3.5/src -llua
 
-CFLAGS     := -g -Wall -Wextra -pedantic -pipe -lm -Wno-unused-parameter
-LDFLAGS    :=
+DUKTAPECFLAGS  := -I./vendor/duktape-2.3.0/src
+DUKTAPELDFLAGS :=
+
+CFLAGS     := -g -Wall -Wextra -pedantic -pipe -lm -Wno-unused-parameter $(shell pkg-config --cflags jansson)
+LDFLAGS    :=  $(shell pkg-config --libs jansson)
 
 SRCS       := $(shell find $(SRCDIR) -type f -name "*.c")
 OBJS       := $(patsubst %.c,%.o,$(SRCS))
 
-CBINS      := luaval memtest memgraph
+CBINS      := luaval duktape memtest memgraph
 SERVER     := evalserver
 
 .PHONY: all clean test
@@ -29,7 +29,7 @@ evalserver: ./cmd/evalserver/*
 	go build ./cmd/evalserver
 
 gengetopt:
-	(cd src/luaval && gengetopt < getopt)
+	(cd src/evaler && gengetopt < getopt)
 	(cd src/memgraph && gengetopt < getopt)
 
 clean:
@@ -39,11 +39,17 @@ clean:
 memgraph: src/alloc.o src/memgraph/main.o src/memgraph/cmdline.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
-luaval: src/alloc.o src/luaval/main.o src/luaval/cmdline.o ./vendor/lua-5.3.5/src/liblua.a
+luaval: src/evaler/cmdline.o src/evaler/evaler.o  src/alloc.o src/luaval/main.o ./vendor/lua-5.3.5/src/liblua.a
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(LUALDFLAGS) -o $@
+
+duktape: src/evaler/cmdline.o src/evaler/evaler.o src/alloc.o src/duktape/main.o ./vendor/duktape-2.3.0/src/duktape.o
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(DUKTAPELDFLAGS) -o $@
 
 ./vendor/lua-5.3.5/src/liblua.a:
 	 cd ./vendor/lua-5.3.5 && $(MAKE) linux
+
+src/duktape/main.o: src/duktape/main.c
+	$(CC) $(CFLAGS) $(DUKTAPECFLAGS) -o $@ -c $<
 
 src/luaval/main.o: src/luaval/main.c
 	$(CC) $(CFLAGS) $(LUACFLAGS) -o $@ -c $<

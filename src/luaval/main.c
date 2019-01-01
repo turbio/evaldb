@@ -1,16 +1,16 @@
+#include <jansson.h>
 #include <stdio.h>
 #include <string.h>
 
-#include <jansson.h>
-
 #include <assert.h>
+#include <stdlib.h>
 
 #include <lauxlib.h>
 #include <lua.h>
 #include <lualib.h>
 
 #include "../alloc.h"
-#include "./cmdline.h"
+#include "../evaler/evaler.h"
 
 int log_alloc;
 
@@ -158,7 +158,7 @@ json_t *marshal(lua_State *L, int index, int depth) {
           continue;
         }
 
-        json_object_set(v, key, marshal(L, lua_gettop(L), depth + 1));
+        json_object_set_new(v, key, marshal(L, lua_gettop(L), depth + 1));
         lua_pop(L, 1);
       }
     } else {
@@ -198,46 +198,103 @@ const char *lreader(lua_State *L, void *data, size_t *size) {
   return data;
 }
 
-void run_for(
+enum evaler_status create_init(struct heap_header *heap) {
+  fprintf(stderr, "CREATING LUA STATE\n");
+  lua_State *L = lua_newstate(lua_allocr, heap);
+
+  if (!L) {
+    return INTERNAL_ERROR;
+  }
+
+  // be careful what we expose from the standard library, it has all sorts
+  // of unsafe stuff built right in.
+  // the base library has some unsafe stuff
+  luaL_requiref(L, "_G", luaopen_base, 1);
+  lua_pop(L, 1);
+
+  luaL_requiref(L, "string", luaopen_string, 1);
+  lua_pop(L, 1);
+
+  luaL_requiref(L, "table", luaopen_table, 1);
+  lua_pop(L, 1);
+
+  luaL_requiref(L, "math", luaopen_math, 1);
+  lua_pop(L, 1);
+
+  luaL_requiref(L, "coroutine", luaopen_coroutine, 1);
+  lua_pop(L, 1);
+
+  luaL_requiref(L, "bit32", luaopen_bit32, 1);
+  lua_pop(L, 1);
+
+  luaL_requiref(L, "os", luaopen_os, 1);
+  lua_pop(L, 1);
+
+  luaL_requiref(L, "utf8", luaopen_utf8, 1);
+  lua_pop(L, 1);
+
+  fprintf(stderr, "CREATED LUA STATE at %p\n", (void *)L);
+
+  heap->user_ptr = L;
+
+  return OK;
+}
+
+json_t *do_eval(
     struct heap_header *heap,
-    lua_State *L,
     const char *code,
     json_t *args,
-    json_t **result,
-    json_t **errmsg) {
+    enum evaler_status *status) {
+
+  json_t *result = NULL;
+
+  lua_State *L = heap->user_ptr;
+
   assert(lua_gettop(L) == 0);
 
   int error;
 
+  size_t preamble_len = 1024;
+  char *preamble = (char *)malloc(preamble_len);
+
   int argc = json_object_size(args);
 
-  char preamble[1000] = {'\0'};
-
+  // TODO(turbio): make sure this doesn't write over the end
   if (argc) {
     strcat(preamble, "local ");
-    int first = 1;
-    for (void *i = json_object_iter(args); i;
-         i = json_object_iter_next(args, i)) {
-      if (!first) {
-        strcat(preamble, ",");
+    const char *key;
+    json_t *value;
+
+    int start = 1;
+
+    json_object_foreach(args, key, value) {
+      if (start) {
+        strcat(preamble, ", ");
       }
-      strcat(preamble, json_object_iter_key(i));
-      first = 0;
+
+      strcat(preamble, key);
+
+      start = 0;
     }
-    strcat(preamble, "=...\n");
+    strcat(preamble, " =...\n");
   }
 
   char *code_gen = (char *)malloc(strlen(code) + strlen(preamble) + 1);
 
   strcpy(code_gen, preamble);
+  free(preamble);
+
   strcat(code_gen, code);
 
   did_read = 0;
 
   error = lua_load(L, lreader, (void *)code_gen, "eval", "t");
   if (error) {
-    *errmsg = json_string(lua_tostring(L, -1));
+    result = json_string(lua_tostring(L, -1));
     lua_pop(L, 1);
+
+    *status = USER_ERROR;
+
     goto abort;
   }
 
@@ -254,194 +311,25 @@ void run_for(
 
   error = lua_pcall(L, argc, 1, 0);
   if (error) {
-    *errmsg = marshal(L, 1, 0);
+    result = marshal(L, 1, 0);
 
     lua_pop(L, 1);
+
+    *status = USER_ERROR;
+
     goto abort;
   }
 
-  *result = marshal(L, 1, 0);
+  result = marshal(L, 1, 0);
+
   lua_pop(L, 1);
+
+  *status = OK;
 
 abort:
   // lua_gc(L, LUA_GCCOLLECT, 0);
 
   assert(lua_gettop(L) == 0);
-}
 
-void walk_generations(struct snap_generation *g) {
-  printf("%d\n", g->gen);
-
-  for (int i = 0; i < GENERATION_CHILDREN; i++) {
-    if (g->c[i] && g->c[i]->type == SNAP_NODE_GENERATION) {
-      walk_generations((struct snap_generation *)g->c[i]);
-    }
-  }
-}
-
-void list_generations(struct heap_header *heap) {
-  walk_generations(heap->root);
-  printf("working: %d\n", heap->working->gen);
-  printf("committed: %d\n", heap->committed->gen);
-}
-
-int main(int argc, char *argv[]) {
-  struct gengetopt_args_info args;
-  cmdline_parser(argc, argv, &args);
-
-  struct heap_header *heap = snap_init(argv, args.db_arg);
-
-  if (args.list_flag) {
-    list_generations(heap);
-    return 0;
-  }
-
-  if (args.checkout_given) {
-    snap_checkout(heap, args.checkout_arg);
-  }
-
-  lua_State *L;
-
-  /*log_alloc = 1;*/
-
-  if (heap->user_ptr) {
-    fprintf(stderr, "LOADING LUA STATE\n");
-    L = heap->user_ptr;
-    fprintf(stderr, "LOADED LUA STATE at %p\n", (void *)L);
-  } else {
-    fprintf(stderr, "CREATING LUA STATE\n");
-    L = lua_newstate(lua_allocr, heap);
-
-    // be careful what we expose from the standard library, it has all sorts
-    // of unsafe stuff built right in.
-
-    // the base library has some unsafe stuff
-    luaL_requiref(L, "_G", luaopen_base, 1);
-    lua_pop(L, 1);
-
-    luaL_requiref(L, "string", luaopen_string, 1);
-    lua_pop(L, 1);
-
-    luaL_requiref(L, "table", luaopen_table, 1);
-    lua_pop(L, 1);
-
-    luaL_requiref(L, "math", luaopen_math, 1);
-    lua_pop(L, 1);
-
-    luaL_requiref(L, "coroutine", luaopen_coroutine, 1);
-    lua_pop(L, 1);
-
-    luaL_requiref(L, "bit32", luaopen_bit32, 1);
-    lua_pop(L, 1);
-
-    luaL_requiref(L, "os", luaopen_os, 1);
-    lua_pop(L, 1);
-
-    luaL_requiref(L, "utf8", luaopen_utf8, 1);
-    lua_pop(L, 1);
-
-    fprintf(stderr, "CREATED LUA STATE at %p\n", (void *)L);
-
-    heap->user_ptr = L;
-
-    snap_commit(heap);
-  }
-
-  if (args.eval_given) {
-    json_t *interp_args = json_object();
-
-    for (int i = 0; i < args.arg_given; i++) {
-      char *eql = strchr(args.arg_arg[i], '=');
-      *eql = '\0';
-
-      json_t *v = json_loads(eql + 1, JSON_DECODE_ANY, NULL);
-
-      if (!v) {
-        fprintf(
-            stderr, "could not parse arg: %s = %s\n", args.arg_arg[i], eql + 1);
-        exit(1);
-      }
-
-      json_object_set(interp_args, args.arg_arg[i], v);
-    }
-
-    json_t *result = NULL;
-    json_t *err = NULL;
-
-    snap_begin_mut(heap);
-
-    run_for(heap, L, args.eval_arg, interp_args, &result, &err);
-
-    if (err) {
-      fputs("error:", stdout);
-      fputs(json_dumps(err, JSON_ENCODE_ANY), stdout);
-      fputs("\n", stdout);
-    } else {
-      fputs(json_dumps(result, JSON_ENCODE_ANY), stdout);
-      fputs("\n", stdout);
-    }
-
-    snap_commit(heap);
-
-    return 0;
-  }
-
-  while (args.server_flag) {
-    char inbuff[4096];
-
-    if (fgets(inbuff, 4096, stdin) == NULL) {
-      fprintf(stderr, "unexpected read error\n");
-      return 1;
-    }
-
-    if (inbuff[strlen(inbuff) - 1] != '\n') {
-      fprintf(stderr, "input should be \\n delimited\n");
-      return 1;
-    }
-
-    json_t *q = json_loads(inbuff, 0, NULL);
-    if (!json_is_object(q)) {
-      fprintf(stderr, "input should be an object\n");
-      return 1;
-    }
-
-    json_t *args = json_object_get(q, "args");
-    if (!json_is_object(args)) {
-      fprintf(stderr, "args should be an object\n");
-      return 1;
-    }
-
-    json_t *code = json_object_get(q, "code");
-    if (!json_is_string(code)) {
-      fprintf(stderr, "code should be a string\n");
-      return 1;
-    }
-
-    const char *code_str = json_string_value(code);
-
-    json_t *result = NULL;
-    json_t *err = NULL;
-
-    snap_begin_mut(heap);
-
-    run_for(heap, L, code_str, args, &result, &err);
-
-    snap_commit(heap);
-
-    json_t *qr = json_object();
-
-    if (err) {
-      json_object_set(qr, "error", err);
-    } else {
-      json_object_set(qr, "object", result);
-    }
-
-    const char *r_str = json_dumps(qr, 0);
-
-    fputs(r_str, stdout);
-    fputs("\n", stdout);
-    fflush(stdout);
-  }
-
-  return 0;
+  return result;
 }

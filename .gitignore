@@ -3,6 +3,7 @@
 /evalserver
 /memtest
 /db
+/duktape
 _db
 lua
 luac
