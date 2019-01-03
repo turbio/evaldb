@@ -214,8 +214,6 @@ enum evaler_status create_init(struct heap_header *heap) {
   luaL_requiref(L, "utf8", luaopen_utf8, 1);
   lua_pop(L, 1);
 
-  fprintf(stderr, "CREATED LUA STATE at %p\n", (void *)L);
-
   heap->user_ptr = L;
 
   return OK;
@@ -268,8 +266,6 @@ json_t *do_eval(
   strcat(code_gen, code);
 
   did_read = 0;
-
-  fprintf(stderr, "about to eval: %s", code_gen);
 
   error = lua_load(L, lreader, (void *)code_gen, "eval", "t");
   if (error) {
