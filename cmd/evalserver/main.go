@@ -154,7 +154,13 @@ func parseQuery(w http.ResponseWriter, r *http.Request) (*query, bool) {
 
 func memgraph(w http.ResponseWriter, r *http.Request) {
 
-	renderer := exec.Command("dot", "-Tsvg")
+	var renderer *exec.Cmd
+	if r.URL.Query().Get("render") == "neato" {
+		renderer = exec.Command("neato", "-Tsvg")
+	} else {
+		renderer = exec.Command("dot", "-Tsvg")
+	}
+
 	grapher := exec.Command("./memgraph", "-d", "./db/__"+defaultDB)
 
 	if r.URL.Query().Get("labels") != "" {
