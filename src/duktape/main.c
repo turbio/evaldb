@@ -29,7 +29,9 @@ json_t *do_eval(
 
   duk_context *ctx = heap->user_ptr;
 
-  duk_push_string(ctx, "eval");
+  duk_require_stack(ctx, 1);
+
+  duk_push_lstring(ctx, "eval", strlen("eval"));
   int err = duk_pcompile_string_filename(ctx, DUK_COMPILE_FUNCTION, wrapped);
   free(wrapped);
   if (err) {

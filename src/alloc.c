@@ -325,8 +325,8 @@ new_gen_between(struct heap_header *heap, struct generation *parent) {
   return child;
 }
 
-struct heap_header *segv_handle_heap;
-void *handling_segv = NULL;
+static struct heap_header *segv_handle_heap;
+static void *handling_segv = NULL;
 void handle_segv(int signum, siginfo_t *i, void *d) {
   void *addr = i->si_addr;
 
@@ -482,7 +482,7 @@ struct heap_header *snap_init(char *argv[], char *db_path) {
 
   segv_handle_heap = heap;
 
-  struct sigaction segv_action;
+  static struct sigaction segv_action;
 
   segv_action.sa_flags = SA_SIGINFO | SA_NODEFER;
   segv_action.sa_sigaction = handle_segv;

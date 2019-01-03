@@ -235,6 +235,7 @@ json_t *do_eval(
 
   size_t preamble_len = 1024;
   char *preamble = (char *)malloc(preamble_len);
+  preamble[0] = '\0';
 
   int argc = json_object_size(args);
 
@@ -267,6 +268,7 @@ json_t *do_eval(
 
   did_read = 0;
 
+  lua_checkstack(L, 1);
   error = lua_load(L, lreader, (void *)code_gen, "eval", "t");
   if (error) {
     result = json_string(lua_tostring(L, -1));

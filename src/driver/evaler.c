@@ -76,7 +76,7 @@ int main(int argc, char *argv[]) {
 
   if (args.list_flag) {
     list_generations(heap);
-    return 0;
+    goto cleanup;
   }
 
   if (args.checkout_given) {
@@ -88,7 +88,7 @@ int main(int argc, char *argv[]) {
 
     if (create_init(heap)) {
       fprintf(stderr, "fatal, unable to create evaler\n");
-      return 1;
+      goto cleanup;
     }
 
     assert(heap->user_ptr != NULL);
@@ -100,46 +100,46 @@ int main(int argc, char *argv[]) {
   }
 
   if (args.eval_given) {
-    return from_eval_arg(args, heap);
+    from_eval_arg(args, heap);
+    goto cleanup;
   }
 
   while (args.server_flag) {
     char inbuff[4096];
 
     if (fgets(inbuff, 4096, stdin) == NULL) {
-      fprintf(stderr, "unexpected read error\n");
-      return 1;
+      goto cleanup;
     }
 
     if (inbuff[strlen(inbuff) - 1] != '\n') {
       fprintf(stderr, "input should be \\n delimited\n");
-      return 1;
+      goto cleanup;
     }
 
     json_t *q = json_loads(inbuff, 0, NULL);
     if (!q) {
       fprintf(stderr, "unable to parse input\n");
-      return 1;
+      goto cleanup;
     }
 
     if (!json_is_object(q)) {
       fprintf(stderr, "input should be an object\n");
       json_decref(q);
-      return 1;
+      goto cleanup;
     }
 
     json_t *args = json_object_get(q, "args");
     if (!json_is_object(args)) {
       fprintf(stderr, "args should be an object\n");
       json_decref(q);
-      return 1;
+      goto cleanup;
     }
 
     json_t *code = json_object_get(q, "code");
     if (!json_is_string(code)) {
       fprintf(stderr, "code should be a string\n");
       json_decref(q);
-      return 1;
+      goto cleanup;
     }
 
     const char *code_str = json_string_value(code);
@@ -170,6 +170,10 @@ int main(int argc, char *argv[]) {
 
     snap_commit(heap);
   }
+
+cleanup:
+
+  cmdline_parser_free(&args);
 
   return 0;
 }
