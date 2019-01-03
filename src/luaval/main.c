@@ -10,9 +10,7 @@
 #include <lualib.h>
 
 #include "../alloc.h"
-#include "../evaler/evaler.h"
-
-int log_alloc;
+#include "../driver/evaler.h"
 
 void *lua_allocr(void *ud, void *ptr, size_t osize, size_t nsize) {
   struct heap_header *heap = (struct heap_header *)ud;
@@ -21,30 +19,14 @@ void *lua_allocr(void *ud, void *ptr, size_t osize, size_t nsize) {
     if (ptr == NULL) {
       return NULL;
     }
-
-    if (log_alloc) {
-      fprintf(stderr, "   FREE %p %ld -> %ld\n", ptr, osize, nsize);
-    }
-
-    /*free(ptr);*/
     snap_free(heap, ptr);
     return NULL;
   }
 
   if (ptr) {
-    if (log_alloc) {
-      fprintf(stderr, "REALLOC %p %ld -> %ld\n", ptr, osize, nsize);
-    }
-
-    /*return realloc(ptr, nsize);*/
     return snap_realloc(heap, ptr, nsize);
   }
 
-  if (log_alloc) {
-    fprintf(stderr, "  ALLOC %ld\n", nsize);
-  }
-
-  /*return malloc(nsize);*/
   return snap_malloc(heap, nsize);
 }
 
@@ -199,7 +181,6 @@ const char *lreader(lua_State *L, void *data, size_t *size) {
 }
 
 enum evaler_status create_init(struct heap_header *heap) {
-  fprintf(stderr, "CREATING LUA STATE\n");
   lua_State *L = lua_newstate(lua_allocr, heap);
 
   if (!L) {
@@ -268,7 +249,7 @@ json_t *do_eval(
     int start = 1;
 
     json_object_foreach(args, key, value) {
-      if (start) {
+      if (!start) {
         strcat(preamble, ", ");
       }
 
@@ -287,6 +268,8 @@ json_t *do_eval(
   strcat(code_gen, code);
 
   did_read = 0;
+
+  fprintf(stderr, "about to eval: %s", code_gen);
 
   error = lua_load(L, lreader, (void *)code_gen, "eval", "t");
   if (error) {

@@ -84,6 +84,8 @@ int main(int argc, char *argv[]) {
   }
 
   if (!heap->user_ptr) {
+    fprintf(stderr, "CREATING INITIAL STATE\n");
+
     if (create_init(heap)) {
       fprintf(stderr, "fatal, unable to create evaler\n");
       return 1;
@@ -92,6 +94,7 @@ int main(int argc, char *argv[]) {
     assert(heap->user_ptr != NULL);
 
     snap_commit(heap);
+    fprintf(stderr, "CREATED INITIAL STATE\n");
   } else {
     assert(heap->user_ptr != NULL);
   }
@@ -99,10 +102,6 @@ int main(int argc, char *argv[]) {
   if (args.eval_given) {
     return from_eval_arg(args, heap);
   }
-
-  fprintf(stderr, "not implemented!\n");
-
-  return 1;
 
   while (args.server_flag) {
     char inbuff[4096];

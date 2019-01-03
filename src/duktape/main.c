@@ -3,13 +3,10 @@
 #include <duktape.h>
 #include <jansson.h>
 
-#include "../evaler/evaler.h"
+#include "../alloc.h"
+#include "../driver/evaler.h"
 
-void *_malloc(void *d, size_t size) { return malloc(size); }
-void *_realloc(void *d, void *ptr, size_t size) { return realloc(ptr, size); }
-void _free(void *d, void *ptr) { free(ptr); }
-
-void fatal(void *d, const char *msg) {
+void handle_fatal(void *d, const char *msg) {
   fprintf(stderr, "fatal error: %s\n", msg);
 }
 
@@ -52,9 +49,11 @@ json_t *do_eval(
     return jmsg;
   }
 
-  const char *strr = duk_json_encode(ctx, -1);
-  fprintf(stderr, "hmm: %s\n", strr);
-  json_t *result = json_loads(strr, JSON_DECODE_ANY, NULL);
+  const char *resultstr = duk_json_encode(ctx, -1);
+  json_t *result = json_loads(resultstr, JSON_DECODE_ANY, NULL);
+  if (!result) {
+    result = json_null();
+  }
 
   duk_pop(ctx);
 
@@ -64,8 +63,12 @@ json_t *do_eval(
 }
 
 enum evaler_status create_init(struct heap_header *heap) {
-
-  duk_context *ctx = duk_create_heap(_malloc, _realloc, _free, NULL, fatal);
+  duk_context *ctx = duk_create_heap(
+      (void *(*)(void *, size_t))snap_malloc,
+      (void *(*)(void *, void *, size_t))snap_realloc,
+      (void (*)(void *, void *))snap_free,
+      heap,
+      handle_fatal);
   if (!ctx) {
     fprintf(stderr, "could not initialize context\n");
     return 1;

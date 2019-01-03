@@ -14,7 +14,7 @@ func TestLuavalOnePlusOne(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.Remove(db.Name())
 
-	cmd := exec.Command("./luaval", db.Name(), "return 1 + 1")
+	cmd := exec.Command("./luaval", "-d", db.Name(), "-e", "return 1 + 1")
 	cmd.Dir = "../"
 
 	out, err := cmd.Output()
@@ -27,14 +27,14 @@ func TestLuavalSetGet(t *testing.T) {
 	assert.NoError(t, err)
 	defer os.Remove(db.Name())
 
-	cmd := exec.Command("./luaval", db.Name(), "v = 12345")
+	cmd := exec.Command("./luaval", "-d", db.Name(), "-e", "v = 12345")
 	cmd.Dir = "../"
 
 	out, err := cmd.Output()
 	assert.NoError(t, err)
 	assert.Equal(t, "null\n", string(out))
 
-	cmd = exec.Command("./luaval", db.Name(), "return v")
+	cmd = exec.Command("./luaval", "-d", db.Name(), "-e", "return v")
 	cmd.Dir = "../"
 
 	out, err = cmd.Output()

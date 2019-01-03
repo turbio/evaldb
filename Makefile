@@ -29,7 +29,7 @@ evalserver: ./cmd/evalserver/*
 	go build ./cmd/evalserver
 
 gengetopt:
-	(cd src/evaler && gengetopt < getopt)
+	(cd src/driver && gengetopt < getopt)
 	(cd src/memgraph && gengetopt < getopt)
 
 clean:
@@ -39,10 +39,10 @@ clean:
 memgraph: src/alloc.o src/memgraph/main.o src/memgraph/cmdline.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
-luaval: src/evaler/cmdline.o src/evaler/evaler.o  src/alloc.o src/luaval/main.o ./vendor/lua-5.3.5/src/liblua.a
+luaval: src/driver/cmdline.o src/driver/evaler.o  src/alloc.o src/luaval/main.o ./vendor/lua-5.3.5/src/liblua.a
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(LUALDFLAGS) -o $@
 
-duktape: src/evaler/cmdline.o src/evaler/evaler.o src/alloc.o src/duktape/main.o ./vendor/duktape-2.3.0/src/duktape.o
+duktape: src/driver/cmdline.o src/driver/evaler.o src/alloc.o src/duktape/main.o ./vendor/duktape-2.3.0/src/duktape.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(DUKTAPELDFLAGS) -o $@
 
 ./vendor/lua-5.3.5/src/liblua.a:

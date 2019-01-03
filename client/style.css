@@ -83,6 +83,7 @@ input {
   background: red;
   color: white;
   white-space: pre;
+  padding: 1em;
 }
 
 .entry::before {

@@ -215,7 +215,7 @@ int set_readonly(struct node *n, void *d) {
     return WALK_CONTINUE;
   }
 
-  fprintf(stderr, "setting RONLY on %p\n", (void *)n);
+  // fprintf(stderr, "setting RONLY on %p\n", (void *)n);
 
   int err = mprotect((void *)p, PAGE_SIZE * p->pages, PROT_READ);
   if (err != 0) {
@@ -361,7 +361,7 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   struct page_from_hit phit = {.hit = addr, .p = NULL, .index = -1};
   walk_nodes((struct node *)heap->root, find_page, (void *)&phit);
 
-  fprintf(stderr, "! turns out the is %p\n", (void *)phit.p);
+  fprintf(stderr, "! turns out the page is %p\n", (void *)phit.p);
 
   assert(phit.p != NULL);
   assert(phit.index != -1);
@@ -402,7 +402,6 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
     walk_nodes((struct node *)heap->working, first_free_slot, &slot);
   }
 
-  // TODO(turbio): this needs to create children sometimes
   assert(slot.target != NULL);
   assert(slot.index != -1);
 
@@ -745,6 +744,10 @@ int first_page_fit(struct node *n, void *d) {
 }
 
 void *_snap_malloc(struct heap_header *heap, size_t bytes) {
+  if (!bytes) {
+    return NULL;
+  }
+
   assert(heap->working != heap->committed);
 
   struct generation *g = heap->working;
@@ -785,6 +788,10 @@ void *_snap_malloc(struct heap_header *heap, size_t bytes) {
 }
 
 void _snap_free(struct heap_header *heap, void *ptr) {
+  if (!ptr) {
+    return;
+  }
+
   assert(heap->working != heap->committed);
 
   struct segment *s = (struct segment *)((char *)ptr - sizeof(struct segment));
@@ -799,6 +806,11 @@ void _snap_free(struct heap_header *heap, void *ptr) {
 }
 
 void *snap_malloc(struct heap_header *heap, size_t bytes) {
+#ifdef SNAP_EVENT_LOG_PRECOMMITED
+  fprintf(event_log, "snap_malloc p %ld\n", bytes);
+  fflush(event_log);
+#endif
+
   if (bytes == 0) {
     return NULL;
   }
@@ -823,6 +835,15 @@ void snap_free(struct heap_header *heap, void *ptr) {
 }
 
 void *snap_realloc(struct heap_header *heap, void *ptr, size_t bytes) {
+#ifdef SNAP_EVENT_LOG_PRECOMMITED
+  fprintf(event_log, "snap_realloc %p %ld\n", ptr, bytes);
+  fflush(event_log);
+#endif
+
+  if (!ptr) {
+    return _snap_malloc(heap, bytes);
+  }
+
   assert(heap->working != heap->committed);
 
   struct page_from_hit phit = {.hit = ptr, .p = NULL, .index = -1};
