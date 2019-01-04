@@ -22,6 +22,9 @@
 #define generation snap_generation
 #define node snap_node
 
+#define SNAP_EVENT_LOG_PRECOMMITED
+#define SNAP_EVENT_LOG_FILE "/dev/stderr"
+
 #ifdef SNAP_EVENT_LOG_FILE
 FILE *event_log;
 #endif
@@ -512,7 +515,8 @@ int snap_commit(struct heap_header *heap) {
 
 struct up_to_gen_state {
   int max_gen;
-  struct page *p[100];
+  struct page **p;
+  int count;
 };
 int pages_up_to_gen(struct node *n, void *d) {
   struct up_to_gen_state *s = (struct up_to_gen_state *)d;
@@ -529,18 +533,11 @@ int pages_up_to_gen(struct node *n, void *d) {
 
   struct page *page = (struct page *)n;
 
-  int i = 0;
-  while (s->p[i]) {
-    if (s->p[i]->real_addr == page->real_addr) {
-      break;
-    }
-
-    i++;
-
-    assert(i < 100);
+  if (s->p) {
+    s->p[s->count] = page;
   }
 
-  s->p[i] = page;
+  s->count++;
 
   return WALK_CONTINUE;
 }
@@ -579,13 +576,23 @@ void snap_checkout(struct heap_header *heap, int generation) {
 
   struct up_to_gen_state s = {
       .max_gen = generation,
-      .p = {NULL},
+      .p = NULL,
+      .count = 0,
   };
-
   walk_nodes((struct node *)heap->root, pages_up_to_gen, &s);
 
-  int i = 0;
-  while (s.p[i]) {
+  struct page *to_swap[s.count];
+
+  s = (struct up_to_gen_state){
+      .max_gen = generation,
+      .p = to_swap,
+      .count = 0,
+  };
+  walk_nodes((struct node *)heap->root, pages_up_to_gen, &s);
+
+  fprintf(stderr, "swapping %d pages\n", s.count);
+
+  for (int i = 0; i < s.count; i++) {
     if (s.p[i] != s.p[i]->real_addr) {
       struct node_rel rel1 = {
           .parent = NULL,
@@ -613,9 +620,6 @@ void snap_checkout(struct heap_header *heap, int generation) {
 
       page_swap(heap, s.p[i], s.p[i]->real_addr);
     }
-
-    i++;
-    assert(i < 100);
   }
 
   heap->committed = fid.g;
@@ -801,7 +805,7 @@ void _snap_free(struct heap_header *heap, void *ptr) {
 
 void *snap_malloc(struct heap_header *heap, size_t bytes) {
 #ifdef SNAP_EVENT_LOG_PRECOMMITED
-  fprintf(event_log, "snap_malloc p %ld\n", bytes);
+  fprintf(event_log, "snap_malloc %ld\n", bytes);
   fflush(event_log);
 #endif
 

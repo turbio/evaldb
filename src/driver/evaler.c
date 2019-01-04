@@ -68,6 +68,86 @@ int from_eval_arg(struct gengetopt_args_info args, struct heap_header *heap) {
   return 0;
 }
 
+void server_loop(struct heap_header *heap) {
+  for (;;) {
+    char inbuff[4096];
+
+    if (!fgets(inbuff, 4096, stdin)) {
+      return;
+    }
+
+    if (inbuff[strlen(inbuff) - 1] != '\n') {
+      fprintf(stderr, "input should be \\n delimited\n");
+      return;
+    }
+
+    json_t *q = json_loads(inbuff, 0, NULL);
+    if (!q) {
+      fprintf(stderr, "unable to parse input\n");
+      return;
+    }
+
+    if (!json_is_object(q)) {
+      fprintf(stderr, "input should be an object\n");
+      json_decref(q);
+      return;
+    }
+
+    json_t *gen = json_object_get(q, "gen");
+    if (gen) {
+      if (!json_is_integer(gen)) {
+        fprintf(stderr, "gen should be an integer\n");
+        json_decref(q);
+        return;
+      }
+
+      snap_checkout(heap, json_integer_value(gen));
+    }
+
+    json_t *args = json_object_get(q, "args");
+    if (!json_is_object(args)) {
+      fprintf(stderr, "args should be an object\n");
+      json_decref(q);
+      return;
+    }
+
+    json_t *code = json_object_get(q, "code");
+    if (!json_is_string(code)) {
+      fprintf(stderr, "code should be a string\n");
+      json_decref(q);
+      return;
+    }
+
+    const char *code_str = json_string_value(code);
+    enum evaler_status status;
+
+    snap_begin_mut(heap);
+
+    json_t *result = do_eval(heap, code_str, args, &status);
+
+    json_decref(q);
+
+    json_t *qr = json_object();
+
+    if (status) {
+      json_object_set_new(qr, "error", result);
+    } else {
+      json_object_set_new(qr, "object", result);
+    }
+
+    char *r_str = json_dumps(qr, 0);
+
+    fputs(r_str, stdout);
+    fputs("\n", stdout);
+    fflush(stdout);
+
+    json_decref(qr);
+    free(r_str);
+
+    snap_commit(heap);
+  }
+}
+
 int main(int argc, char *argv[]) {
   struct gengetopt_args_info args;
   cmdline_parser(argc, argv, &args);
@@ -104,71 +184,8 @@ int main(int argc, char *argv[]) {
     goto cleanup;
   }
 
-  while (args.server_flag) {
-    char inbuff[4096];
-
-    if (!fgets(inbuff, 4096, stdin)) {
-      goto cleanup;
-    }
-
-    if (inbuff[strlen(inbuff) - 1] != '\n') {
-      fprintf(stderr, "input should be \\n delimited\n");
-      goto cleanup;
-    }
-
-    json_t *q = json_loads(inbuff, 0, NULL);
-    if (!q) {
-      fprintf(stderr, "unable to parse input\n");
-      goto cleanup;
-    }
-
-    if (!json_is_object(q)) {
-      fprintf(stderr, "input should be an object\n");
-      json_decref(q);
-      goto cleanup;
-    }
-
-    json_t *args = json_object_get(q, "args");
-    if (!json_is_object(args)) {
-      fprintf(stderr, "args should be an object\n");
-      json_decref(q);
-      goto cleanup;
-    }
-
-    json_t *code = json_object_get(q, "code");
-    if (!json_is_string(code)) {
-      fprintf(stderr, "code should be a string\n");
-      json_decref(q);
-      goto cleanup;
-    }
-
-    const char *code_str = json_string_value(code);
-    enum evaler_status status;
-
-    snap_begin_mut(heap);
-
-    json_t *result = do_eval(heap, code_str, args, &status);
-
-    json_decref(q);
-
-    json_t *qr = json_object();
-
-    if (status) {
-      json_object_set_new(qr, "error", result);
-    } else {
-      json_object_set_new(qr, "object", result);
-    }
-
-    char *r_str = json_dumps(qr, 0);
-
-    fputs(r_str, stdout);
-    fputs("\n", stdout);
-    fflush(stdout);
-
-    json_decref(qr);
-    free(r_str);
-
-    snap_commit(heap);
+  if (args.server_flag) {
+    server_loop(heap);
   }
 
 cleanup:
