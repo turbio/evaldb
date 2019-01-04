@@ -84,3 +84,32 @@ func TestLuavalMarshal(t *testing.T) {
 	assert.Contains(t, string(out), "\"f\": false")
 	assert.Contains(t, string(out), "\"str\": \"i'm a string\"")
 }
+
+func TestLuavalCheckout(t *testing.T) {
+	db, err := ioutil.TempFile("", "luaval_checkout")
+	assert.NoError(t, err)
+	defer os.Remove(db.Name())
+
+	cmd := exec.Command("./luaval", "-d", db.Name(), "-e", "v = 54321")
+	cmd.Dir = "../"
+	out, err := cmd.Output()
+	assert.NoError(t, err)
+	assert.Equal(t, "null\n", string(out))
+
+	cmd = exec.Command("./luaval", "-d", db.Name(), "-e", "return v")
+	cmd.Dir = "../"
+	out, err = cmd.Output()
+	assert.NoError(t, err)
+	assert.Equal(t, "54321\n", string(out))
+
+	cmd = exec.Command("./luaval", "-d", db.Name(), "-c", "0")
+	cmd.Dir = "../"
+	_, err = cmd.Output()
+	assert.NoError(t, err)
+
+	cmd = exec.Command("./luaval", "-d", db.Name(), "-e", "return v")
+	cmd.Dir = "../"
+	out, err = cmd.Output()
+	assert.NoError(t, err)
+	assert.Equal(t, "null\n", string(out))
+}

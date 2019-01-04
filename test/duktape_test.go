@@ -10,7 +10,7 @@ import (
 )
 
 func TestDuktapeOnePlusOne(t *testing.T) {
-	db, err := ioutil.TempFile("", "luaval_one_plus_one")
+	db, err := ioutil.TempFile("", "duktape_one_plus_one")
 	assert.NoError(t, err)
 	defer os.Remove(db.Name())
 
@@ -23,7 +23,7 @@ func TestDuktapeOnePlusOne(t *testing.T) {
 }
 
 func TestDuktapeSetGet(t *testing.T) {
-	db, err := ioutil.TempFile("", "luaval_set_get")
+	db, err := ioutil.TempFile("", "duktape_set_get")
 	assert.NoError(t, err)
 	defer os.Remove(db.Name())
 
@@ -43,7 +43,7 @@ func TestDuktapeSetGet(t *testing.T) {
 }
 
 func TestDuktapeAddArgs(t *testing.T) {
-	db, err := ioutil.TempFile("", "luaval_add_args")
+	db, err := ioutil.TempFile("", "duktape_add_args")
 	assert.NoError(t, err)
 	defer os.Remove(db.Name())
 
@@ -62,7 +62,7 @@ func TestDuktapeAddArgs(t *testing.T) {
 }
 
 func TestDuktapeMarshal(t *testing.T) {
-	db, err := ioutil.TempFile("", "luaval_marshal")
+	db, err := ioutil.TempFile("", "duktape_marshal")
 	assert.NoError(t, err)
 	defer os.Remove(db.Name())
 
@@ -83,4 +83,35 @@ func TestDuktapeMarshal(t *testing.T) {
 	assert.Contains(t, string(out), "\"t\": true")
 	assert.Contains(t, string(out), "\"f\": false")
 	assert.Contains(t, string(out), "\"str\": \"i'm a string\"")
+}
+
+func TestDuktapeCheckout(t *testing.T) {
+	t.Skip() // TODO(turbio)
+
+	db, err := ioutil.TempFile("", "duktape_checkout")
+	assert.NoError(t, err)
+	defer os.Remove(db.Name())
+
+	cmd := exec.Command("./duktape", "-d", db.Name(), "-e", "v = 54321")
+	cmd.Dir = "../"
+	out, err := cmd.Output()
+	assert.NoError(t, err)
+	assert.Equal(t, "null\n", string(out))
+
+	cmd = exec.Command("./duktape", "-d", db.Name(), "-e", "return v")
+	cmd.Dir = "../"
+	out, err = cmd.Output()
+	assert.NoError(t, err)
+	assert.Equal(t, "54321\n", string(out))
+
+	cmd = exec.Command("./duktape", "-d", db.Name(), "-c", "0")
+	cmd.Dir = "../"
+	_, err = cmd.Output()
+	assert.NoError(t, err)
+
+	cmd = exec.Command("./duktape", "-d", db.Name(), "-e", "return v")
+	cmd.Dir = "../"
+	out, err = cmd.Output()
+	assert.NoError(t, err)
+	assert.Equal(t, "null\n", string(out))
 }
