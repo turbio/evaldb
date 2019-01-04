@@ -107,7 +107,7 @@ int main(int argc, char *argv[]) {
   while (args.server_flag) {
     char inbuff[4096];
 
-    if (fgets(inbuff, 4096, stdin) == NULL) {
+    if (!fgets(inbuff, 4096, stdin)) {
       goto cleanup;
     }
 

@@ -16,22 +16,33 @@ json_t *do_eval(
     json_t *args,
     enum evaler_status *status) {
 
-  const char *before = "function () {";
-  const char *after = "}";
+  int argc = json_object_size(args);
+
+  char preamble[4096] = "function(";
+
+  if (argc) {
+    const char *key;
+    json_t *value;
+    json_object_foreach(args, key, value) { strcat(preamble, key); }
+  }
+
+  strcat(preamble, "){");
+
+  const char *end = "}";
 
   char *wrapped =
-      (char *)malloc(strlen(code) + strlen(before) + strlen(after) + 1);
+      (char *)malloc(strlen(preamble) + strlen(code) + strlen(end) + 1);
   wrapped[0] = '\0';
 
-  strcat(wrapped, before);
+  strcat(wrapped, preamble);
   strcat(wrapped, code);
-  strcat(wrapped, after);
+  strcat(wrapped, end);
 
   duk_context *ctx = heap->user_ptr;
 
   duk_require_stack(ctx, 1);
 
-  duk_push_lstring(ctx, "eval", strlen("eval"));
+  duk_push_string(ctx, "eval");
   int err = duk_pcompile_string_filename(ctx, DUK_COMPILE_FUNCTION, wrapped);
   free(wrapped);
   if (err) {
@@ -42,7 +53,18 @@ json_t *do_eval(
     return jmsg;
   }
 
-  err = duk_pcall(ctx, 0);
+  if (argc) {
+    const char *key;
+    json_t *value;
+    json_object_foreach(args, key, value) {
+      char *argstr = json_dumps(value, JSON_ENCODE_ANY);
+      duk_push_string(ctx, argstr);
+      duk_json_decode(ctx, -1);
+      free(argstr);
+    }
+  }
+
+  err = duk_pcall(ctx, argc);
   if (err) {
     const char *msg = duk_safe_to_string(ctx, -1);
     json_t *jmsg = json_string(msg);

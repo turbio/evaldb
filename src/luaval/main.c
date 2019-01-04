@@ -12,6 +12,8 @@
 #include "../alloc.h"
 #include "../driver/evaler.h"
 
+#define MAX_ARG_LEN 4096
+
 void *lua_allocr(void *ud, void *ptr, size_t osize, size_t nsize) {
   struct heap_header *heap = (struct heap_header *)ud;
 
@@ -61,24 +63,28 @@ void unmarshal(lua_State *L, json_t *v) {
   case JSON_OBJECT:
     lua_checkstack(L, 2);
     lua_createtable(L, 0, json_object_size(v));
-    for (void *i = json_object_iter(v); i; i = json_object_iter_next(v, i)) {
-      lua_pushstring(L, json_object_iter_key(i));
-      unmarshal(L, json_object_iter_value(i));
+
+    const char *key;
+    json_t *value;
+    json_object_foreach(v, key, value) {
+      lua_pushstring(L, key);
+      unmarshal(L, value);
       lua_settable(L, -3);
     }
+
     break;
   case JSON_NULL:
     lua_pushnil(L);
     break;
   default:
-    lua_pushstring(L, "idk what this is");
+    assert(0 && "unknown type in json");
     break;
   }
 }
 
 json_t *marshal(lua_State *L, int index, int depth) {
   if (depth > 5) {
-    return json_string("!max depth!");
+    return json_string("max depth!");
   }
 
   json_t *v = NULL;
@@ -155,9 +161,8 @@ json_t *marshal(lua_State *L, int index, int depth) {
     break;
   }
   default: {
-    char b[] = "!type \0        ";
+    char b[] = "type \0        ";
     strncat(b, lua_typename(L, lua_type(L, -1)), 8);
-    strcat(b, "!");
     v = json_string(b);
     break;
   }
@@ -166,18 +171,23 @@ json_t *marshal(lua_State *L, int index, int depth) {
   return v;
 }
 
-int did_read = 0;
+struct lread_status {
+  int did_read;
+  const char *str;
+};
 
 const char *lreader(lua_State *L, void *data, size_t *size) {
-  if (did_read) {
+  struct lread_status *s = (struct lread_status *)data;
+
+  if (s->did_read) {
     *size = 0;
     return NULL;
   }
 
-  did_read = 1;
+  s->did_read = 1;
 
-  *size = strlen(data);
-  return data;
+  *size = strlen(s->str);
+  return s->str;
 }
 
 enum evaler_status create_init(struct heap_header *heap) {
@@ -219,6 +229,29 @@ enum evaler_status create_init(struct heap_header *heap) {
   return OK;
 }
 
+void check_arg_len(json_t *args) {
+  int preamble_len = 0;
+
+  preamble_len = strlen("local ");
+
+  const char *key;
+  json_t *value;
+
+  int start = 1;
+  json_object_foreach(args, key, value) {
+    if (!start) {
+      start = 0;
+      preamble_len += strlen(", ");
+    }
+    preamble_len += strlen(key);
+  }
+  preamble_len += strlen(" =...\n");
+
+  if (preamble_len + 1 > MAX_ARG_LEN) {
+    assert(0 && "arg length too big");
+  }
+}
+
 json_t *do_eval(
     struct heap_header *heap,
     const char *code,
@@ -233,43 +266,46 @@ json_t *do_eval(
 
   int error;
 
-  size_t preamble_len = 1024;
-  char *preamble = (char *)malloc(preamble_len);
-  preamble[0] = '\0';
-
   int argc = json_object_size(args);
 
-  // TODO(turbio): make sure this doesn't write over the end
+  struct lread_status reader = {
+      .did_read = 0,
+      .str = NULL,
+  };
+
+  char *ambled = NULL;
+
   if (argc) {
+    check_arg_len(args);
+
+    char preamble[MAX_ARG_LEN] = "\0";
+
     strcat(preamble, "local ");
+
     const char *key;
     json_t *value;
 
     int start = 1;
-
     json_object_foreach(args, key, value) {
       if (!start) {
-        strcat(preamble, ", ");
+        start = 0;
+        strcat(preamble, ",");
       }
-
       strcat(preamble, key);
-
-      start = 0;
     }
-    strcat(preamble, " =...\n");
+
+    strcat(preamble, "=...\n");
+
+    ambled = (char *)malloc(strlen(code) + strlen(preamble) + 1);
+    strcpy(ambled, preamble);
+    strcat(ambled, code);
+    reader.str = ambled;
+  } else {
+    reader.str = code;
   }
 
-  char *code_gen = (char *)malloc(strlen(code) + strlen(preamble) + 1);
-
-  strcpy(code_gen, preamble);
-  free(preamble);
-
-  strcat(code_gen, code);
-
-  did_read = 0;
-
   lua_checkstack(L, 1);
-  error = lua_load(L, lreader, (void *)code_gen, "eval", "t");
+  error = lua_load(L, lreader, (void *)&reader, "eval", "t");
   if (error) {
     result = json_string(lua_tostring(L, -1));
     lua_pop(L, 1);
@@ -279,13 +315,10 @@ json_t *do_eval(
     goto abort;
   }
 
-  free(code_gen);
-
   if (argc) {
-    for (void *i = json_object_iter(args); i;
-         i = json_object_iter_next(args, i)) {
-      unmarshal(L, json_object_iter_value(i));
-    }
+    const char *key;
+    json_t *value;
+    json_object_foreach(args, key, value) { unmarshal(L, value); }
   }
 
   assert(argc + 1 == lua_gettop(L));
@@ -309,6 +342,10 @@ json_t *do_eval(
 
 abort:
   // lua_gc(L, LUA_GCCOLLECT, 0);
+
+  if (ambled) {
+    free(ambled);
+  }
 
   assert(lua_gettop(L) == 0);
 
