@@ -301,8 +301,6 @@ json_t *do_eval(
     reader.str = code;
   }
 
-  fprintf(stderr, "yoy %s", reader.str);
-
   lua_checkstack(L, 1);
   error = lua_load(L, lreader, (void *)&reader, "eval", "t");
   if (error) {

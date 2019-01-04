@@ -25,20 +25,28 @@ json_t *do_eval(
   if (argc) {
     const char *key;
     json_t *value;
+    int f = 1;
     json_object_foreach(args, key, value) {
-      premable_len += strlen(key) + strlen(",");
+      if (!f) {
+        premable_len += strlen(key) + strlen(",");
+      }
+      f = 0;
     }
   }
 
-  char preamble[premable_len];
+  char preamble[premable_len + 1];
   strcpy(preamble, "function(");
 
   if (argc) {
     const char *key;
     json_t *value;
+    int f = 1;
     json_object_foreach(args, key, value) {
+      if (!f) {
+        strcat(preamble, ",");
+      }
+      f = 0;
       strcat(preamble, key);
-      strcat(preamble, ",");
     }
   }
 
@@ -53,6 +61,8 @@ json_t *do_eval(
   strcat(wrapped, preamble);
   strcat(wrapped, code);
   strcat(wrapped, end);
+
+  fprintf(stderr, "yoy %s", wrapped);
 
   duk_context *ctx = heap->user_ptr;
 

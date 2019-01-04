@@ -17,8 +17,8 @@ import (
 func TestMain(m *testing.M) {
 	cmd := exec.Command("./evalserver")
 	cmd.Dir = "../"
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
+	// cmd.Stderr = os.Stderr
+	// cmd.Stdout = os.Stdout
 
 	err := cmd.Start()
 	if err != nil {

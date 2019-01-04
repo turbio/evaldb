@@ -23,7 +23,7 @@ SERVER     := evalserver
 all: $(CBINS) $(SERVER)
 
 test:
-	go test ./test
+	go test -v ./test
 
 evalserver: ./cmd/evalserver/*
 	go build ./cmd/evalserver
