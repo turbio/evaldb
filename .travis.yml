@@ -1,0 +1,7 @@
+language: go
+script:
+  - go get -v -t ./...
+  - sudo apt-get update
+  - sudo apt-get install -y libjansson-dev libreadline-dev graphviz
+  - make all
+  - make test

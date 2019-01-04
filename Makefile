@@ -1,7 +1,7 @@
 TOPDIR     := .
 SRCDIR     := $(TOPDIR)/src
 
-CC         := gcc
+CC         := gcc -std=c99
 
 LUACFLAGS  := -I./vendor/lua-5.3.5/src
 LUALDFLAGS := -L./vendor/lua-5.3.5/src -llua
@@ -9,8 +9,8 @@ LUALDFLAGS := -L./vendor/lua-5.3.5/src -llua
 DUKTAPECFLAGS  := -I./vendor/duktape-2.3.0/src
 DUKTAPELDFLAGS :=
 
-CFLAGS     := -g -Wall -Wextra -pedantic -pipe -lm -Wno-unused-parameter $(shell pkg-config --cflags jansson)
-LDFLAGS    :=  $(shell pkg-config --libs jansson)
+CFLAGS     := -g -Wall -Wextra -pedantic -pipe -Wno-unused-parameter $(shell pkg-config --cflags jansson)
+LDFLAGS    :=  $(shell pkg-config --libs jansson) -lm
 
 SRCS       := $(shell find $(SRCDIR) -type f -name "*.c")
 OBJS       := $(patsubst %.c,%.o,$(SRCS))
