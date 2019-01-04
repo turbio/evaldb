@@ -120,11 +120,6 @@ int find_page(struct node *n, void *d) {
 
       for (int i = 0; i < p->len; i++) {
         struct segment *s = p->c[i];
-        // TODO(mason): revisit this
-        // if ((void *)phit->hit >= (void *)((char *)s + sizeof(struct segment))
-        // && (void *)phit->hit < (void *)((char *)s + sizeof(struct segment) +
-        // s->size)) {
-
         if (phit->hit >= (void *)((char *)s) &&
             phit->hit <
                 (void *)((char *)s + sizeof(struct segment) + s->size)) {
@@ -246,7 +241,7 @@ struct page *page_copy(struct heap_header *h, struct page *p) {
   memcpy(new, p, p->pages * PAGE_SIZE);
 
   // offset all the segment pointers so they're still correct when the
-  // page is moved
+  // page is moved. Useful for analyzing the situation without remapping.
   for (int i = 0; i < p->len; i++) {
     new->c[i] =
         (struct segment *)((char *)new->c[i] + ((char *)new - (char *)p));
@@ -274,16 +269,13 @@ void page_swap(struct heap_header *heap, struct page *p1, struct page *p2) {
   void *tmp = (char *)heap->last_page + (heap->last_page->pages * PAGE_SIZE);
 
   memcpy(tmp, p1, p1->pages * PAGE_SIZE);
-  for (int i = 0; i < p1->len; i++) {
-    p1->c[i] = (struct segment *)((char *)p1->c[i] + ((char *)p2 - (char *)p1));
-  }
-
   memcpy(p1, p2, p2->pages * PAGE_SIZE);
-  for (int i = 0; i < p2->len; i++) {
-    p2->c[i] = (struct segment *)((char *)p1->c[i] + ((char *)p1 - (char *)p2));
-  }
-
   memcpy(p2, tmp, p1->pages * PAGE_SIZE);
+
+  for (int i = 0; i < p2->len; i++) {
+    p2->c[i] = (struct segment *)((char *)p2->c[i] + ((char *)p2 - (char *)p1));
+    p1->c[i] = (struct segment *)((char *)p1->c[i] + ((char *)p1 - (char *)p2));
+  }
 
   err = mprotect((void *)p1, PAGE_SIZE, PROT_READ);
   if (err != 0) {

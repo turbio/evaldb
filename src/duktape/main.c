@@ -18,12 +18,28 @@ json_t *do_eval(
 
   int argc = json_object_size(args);
 
-  char preamble[4096] = "function(";
+  int premable_len = strlen(
+      "function("
+      "){");
 
   if (argc) {
     const char *key;
     json_t *value;
-    json_object_foreach(args, key, value) { strcat(preamble, key); }
+    json_object_foreach(args, key, value) {
+      premable_len += strlen(key) + strlen(",");
+    }
+  }
+
+  char preamble[premable_len];
+  strcpy(preamble, "function(");
+
+  if (argc) {
+    const char *key;
+    json_t *value;
+    json_object_foreach(args, key, value) {
+      strcat(preamble, key);
+      strcat(preamble, ",");
+    }
   }
 
   strcat(preamble, "){");

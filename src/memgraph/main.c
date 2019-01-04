@@ -38,9 +38,9 @@ void print_segment(struct snap_segment *s) {
   printf(" shape=box");
   printf(" penwidth=.5");
   if (s->used) {
-    printf(" fillcolor=\"#aaffaa\"");
+    printf(" fillcolor=\"#eeeeee\"");
   } else {
-    printf(" fillcolor=\"#ffaaaa\"");
+    printf(" fillcolor=\"#888888\"");
   }
   printf("]\n");
   n++;

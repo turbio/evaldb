@@ -41,3 +41,41 @@ func TestLuavalSetGet(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "12345\n", string(out))
 }
+
+func TestLuavalAddArgs(t *testing.T) {
+	db, err := ioutil.TempFile("", "luaval_add_args")
+	assert.NoError(t, err)
+	defer os.Remove(db.Name())
+
+	cmd := exec.Command(
+		"./luaval",
+		"-d", db.Name(),
+		"-e", "return first + second",
+		"-a", "first=100",
+		"-a", "second=200",
+	)
+	cmd.Dir = "../"
+
+	out, err := cmd.Output()
+	assert.NoError(t, err)
+	assert.Equal(t, "300\n", string(out))
+}
+
+func TestLuavalTable(t *testing.T) {
+	db, err := ioutil.TempFile("", "luaval_table")
+	assert.NoError(t, err)
+	defer os.Remove(db.Name())
+
+	cmd := exec.Command(
+		"./luaval",
+		"-d", db.Name(),
+		"-e", "return first + second",
+		"-a", "first=100",
+		"-a", "second=200",
+	)
+	cmd.Dir = "../"
+
+	out, err := cmd.Output()
+	assert.NoError(t, err)
+	assert.Equal(t, "300\n", string(out))
+}

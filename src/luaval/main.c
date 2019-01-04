@@ -12,8 +12,6 @@
 #include "../alloc.h"
 #include "../driver/evaler.h"
 
-#define MAX_ARG_LEN 4096
-
 void *lua_allocr(void *ud, void *ptr, size_t osize, size_t nsize) {
   struct heap_header *heap = (struct heap_header *)ud;
 
@@ -229,7 +227,7 @@ enum evaler_status create_init(struct heap_header *heap) {
   return OK;
 }
 
-void check_arg_len(json_t *args) {
+int arg_len(json_t *args) {
   int preamble_len = 0;
 
   preamble_len = strlen("local ");
@@ -240,16 +238,14 @@ void check_arg_len(json_t *args) {
   int start = 1;
   json_object_foreach(args, key, value) {
     if (!start) {
-      start = 0;
       preamble_len += strlen(", ");
     }
+    start = 0;
     preamble_len += strlen(key);
   }
   preamble_len += strlen(" =...\n");
 
-  if (preamble_len + 1 > MAX_ARG_LEN) {
-    assert(0 && "arg length too big");
-  }
+  return preamble_len;
 }
 
 json_t *do_eval(
@@ -276,9 +272,10 @@ json_t *do_eval(
   char *ambled = NULL;
 
   if (argc) {
-    check_arg_len(args);
+    int preamble_len = arg_len(args);
 
-    char preamble[MAX_ARG_LEN] = "\0";
+    char preamble[preamble_len];
+    preamble[0] = 0;
 
     strcat(preamble, "local ");
 
@@ -288,9 +285,9 @@ json_t *do_eval(
     int start = 1;
     json_object_foreach(args, key, value) {
       if (!start) {
-        start = 0;
         strcat(preamble, ",");
       }
+      start = 0;
       strcat(preamble, key);
     }
 
@@ -303,6 +300,8 @@ json_t *do_eval(
   } else {
     reader.str = code;
   }
+
+  fprintf(stderr, "yoy %s", reader.str);
 
   lua_checkstack(L, 1);
   error = lua_load(L, lreader, (void *)&reader, "eval", "t");
