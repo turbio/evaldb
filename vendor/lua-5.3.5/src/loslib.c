@@ -382,19 +382,24 @@ static int os_exit (lua_State *L) {
   return 0;
 }
 
+static int func_not_allowed(lua_State *L) {
+    lua_pushliteral(L, "this function is not allowed");
+    lua_settop(L, 1);
+    return lua_error(L);
+}
 
 static const luaL_Reg syslib[] = {
   {"clock",     os_clock},
   {"date",      os_date},
   {"difftime",  os_difftime},
-  {"execute",   os_execute},
-  {"exit",      os_exit},
-  {"getenv",    os_getenv},
-  {"remove",    os_remove},
-  {"rename",    os_rename},
+  {"execute",   func_not_allowed},
+  {"exit",      func_not_allowed},
+  {"getenv",    func_not_allowed},
+  {"remove",    func_not_allowed},
+  {"rename",    func_not_allowed},
   {"setlocale", os_setlocale},
   {"time",      os_time},
-  {"tmpname",   os_tmpname},
+  {"tmpname",   func_not_allowed},
   {NULL, NULL}
 };
 

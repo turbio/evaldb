@@ -449,23 +449,28 @@ static int luaB_tostring (lua_State *L) {
   return 1;
 }
 
+static int func_not_allowed(lua_State *L) {
+    lua_pushliteral(L, "this function is not allowed");
+    lua_settop(L, 1);
+    return lua_error(L);
+}
 
 static const luaL_Reg base_funcs[] = {
   {"assert", luaB_assert},
-  {"collectgarbage", luaB_collectgarbage},
-  {"dofile", luaB_dofile},
+  {"collectgarbage", func_not_allowed},
+  {"dofile", func_not_allowed},
   {"error", luaB_error},
   {"getmetatable", luaB_getmetatable},
   {"ipairs", luaB_ipairs},
-  {"loadfile", luaB_loadfile},
-  {"load", luaB_load},
+  {"loadfile", func_not_allowed},
+  {"load", func_not_allowed},
 #if defined(LUA_COMPAT_LOADSTRING)
-  {"loadstring", luaB_load},
+  {"loadstring", func_not_allowed},
 #endif
   {"next", luaB_next},
   {"pairs", luaB_pairs},
   {"pcall", luaB_pcall},
-  {"print", luaB_print},
+  {"print", func_not_allowed},
   {"rawequal", luaB_rawequal},
   {"rawlen", luaB_rawlen},
   {"rawget", luaB_rawget},

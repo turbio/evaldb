@@ -196,31 +196,31 @@ enum evaler_status create_init(struct heap_header *heap) {
   }
 
   // be careful what we expose from the standard library, it has all sorts
-  // of unsafe stuff built right in.
-  // the base library has some unsafe stuff
-  /*luaL_requiref(L, "_G", luaopen_base, 1);*/
-  /*lua_pop(L, 1);*/
+  // of unsafe stuff built right in. Specifically, base and os need to be
+  // handled safely.
+  luaL_requiref(L, "_G", luaopen_base, 1);
+  lua_pop(L, 1);
 
-  /*luaL_requiref(L, "string", luaopen_string, 1);*/
-  /*lua_pop(L, 1);*/
+  luaL_requiref(L, "os", luaopen_os, 1);
+  lua_pop(L, 1);
 
-  /*luaL_requiref(L, "table", luaopen_table, 1);*/
-  /*lua_pop(L, 1);*/
+  luaL_requiref(L, "string", luaopen_string, 1);
+  lua_pop(L, 1);
 
-  /*luaL_requiref(L, "math", luaopen_math, 1);*/
-  /*lua_pop(L, 1);*/
+  luaL_requiref(L, "table", luaopen_table, 1);
+  lua_pop(L, 1);
 
-  /*luaL_requiref(L, "coroutine", luaopen_coroutine, 1);*/
-  /*lua_pop(L, 1);*/
+  luaL_requiref(L, "math", luaopen_math, 1);
+  lua_pop(L, 1);
 
-  /*luaL_requiref(L, "bit32", luaopen_bit32, 1);*/
-  /*lua_pop(L, 1);*/
+  luaL_requiref(L, "coroutine", luaopen_coroutine, 1);
+  lua_pop(L, 1);
 
-  /*luaL_requiref(L, "os", luaopen_os, 1);*/
-  /*lua_pop(L, 1);*/
+  luaL_requiref(L, "bit32", luaopen_bit32, 1);
+  lua_pop(L, 1);
 
-  /*luaL_requiref(L, "utf8", luaopen_utf8, 1);*/
-  /*lua_pop(L, 1);*/
+  luaL_requiref(L, "utf8", luaopen_utf8, 1);
+  lua_pop(L, 1);
 
   heap->user_ptr = L;
 
