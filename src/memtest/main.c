@@ -136,10 +136,10 @@ int main(int argc, char *argv[]) {
           fprintf(
               stderr,
               "section %p - %p (%d)\n",
-              (void *)a.ptr,
-              (void *)a.ptr + a.size,
+              (char *)a.ptr,
+              (char *)a.ptr + a.size,
               a.size);
-          fprintf(stderr, "at %p\n", (void *)a.ptr + j);
+          fprintf(stderr, "at %p\n", (char *)a.ptr + j);
           fprintf(stderr, "used check failed %d != %d", a.ptr[j], used_ch);
           exit(1);
         }

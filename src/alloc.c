@@ -22,8 +22,10 @@
 #define generation snap_generation
 #define node snap_node
 
+#ifdef DEBUG_LOGGING
 #define SNAP_EVENT_LOG_PRECOMMITED
 #define SNAP_EVENT_LOG_FILE "/dev/stderr"
+#endif
 
 #ifdef SNAP_EVENT_LOG_FILE
 FILE *event_log;
@@ -52,13 +54,8 @@ void *open_db(const char *path, size_t size) {
     return NULL;
   }
 
-  void *mem = mmap(
-      MAP_START_ADDR,
-      size,
-      PROT_READ | PROT_WRITE,
-      MAP_FIXED | MAP_SHARED,
-      fd,
-      0);
+  void *mem = mmap(MAP_START_ADDR, size, PROT_READ | PROT_WRITE,
+                   MAP_FIXED | MAP_SHARED, fd, 0);
   if (mem == MAP_FAILED) {
     fprintf(stderr, "db map failed  %s\n", strerror(errno));
     return NULL;
@@ -191,8 +188,8 @@ int verify_all_committed(struct node *n, void *d) {
 
 struct page *new_page(struct heap_header *heap, size_t pages) {
   struct page *f = heap->last_page =
-      (struct page
-           *)((char *)heap->last_page + (heap->last_page->pages * PAGE_SIZE));
+      (struct page *)((char *)heap->last_page +
+                      (heap->last_page->pages * PAGE_SIZE));
 
   *f = (struct page){
       .i = {.type = SNAP_NODE_PAGE, .committed = 0},
@@ -220,11 +217,8 @@ int set_readonly(struct node *n, void *d) {
   int err = mprotect((void *)p, PAGE_SIZE * p->pages, PROT_READ);
   if (err != 0) {
     fprintf(stderr, "failed to unmark write pages %s\n", strerror(errno));
-    fprintf(
-        stderr,
-        "%p - %p",
-        (void *)p,
-        (void *)((char *)p + (PAGE_SIZE * p->pages)));
+    fprintf(stderr, "%p - %p", (void *)p,
+            (void *)((char *)p + (PAGE_SIZE * p->pages)));
     exit(3);
   }
 
@@ -255,15 +249,19 @@ struct page *page_copy(struct heap_header *h, struct page *p) {
 
 // TODO(turbio): just do some remapping
 void page_swap(struct heap_header *heap, struct page *p1, struct page *p2) {
-  fprintf(stderr, "swapping pages %p <-> %p\n", (void *)p1, (void *)p2);
+  assert(p1->pages == p2->pages);
 
-  int err = mprotect((void *)p1, PAGE_SIZE, PROT_READ | PROT_WRITE);
+#ifdef DEBUG_LOGGING
+  fprintf(stderr, "swapping pages %p <-> %p\n", (void *)p1, (void *)p2);
+#endif
+
+  int err = mprotect((void *)p1, PAGE_SIZE * p1->pages, PROT_READ | PROT_WRITE);
   if (err != 0) {
     fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
     exit(3);
   }
 
-  err = mprotect((void *)p2, PAGE_SIZE, PROT_READ | PROT_WRITE);
+  err = mprotect((void *)p2, PAGE_SIZE * p1->pages, PROT_READ | PROT_WRITE);
   if (err != 0) {
     fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
     exit(3);
@@ -272,7 +270,7 @@ void page_swap(struct heap_header *heap, struct page *p1, struct page *p2) {
   void *tmp = (char *)heap->last_page + (heap->last_page->pages * PAGE_SIZE);
 
   memcpy(tmp, p1, p1->pages * PAGE_SIZE);
-  memcpy(p1, p2, p2->pages * PAGE_SIZE);
+  memcpy(p1, p2, p1->pages * PAGE_SIZE);
   memcpy(p2, tmp, p1->pages * PAGE_SIZE);
 
   for (int i = 0; i < p2->len; i++) {
@@ -280,13 +278,13 @@ void page_swap(struct heap_header *heap, struct page *p1, struct page *p2) {
     p1->c[i] = (struct segment *)((char *)p1->c[i] + ((char *)p1 - (char *)p2));
   }
 
-  err = mprotect((void *)p1, PAGE_SIZE, PROT_READ);
+  err = mprotect((void *)p1, PAGE_SIZE * p1->pages, PROT_READ);
   if (err != 0) {
     fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
     exit(3);
   }
 
-  err = mprotect((void *)p2, PAGE_SIZE, PROT_READ);
+  err = mprotect((void *)p2, PAGE_SIZE * p1->pages, PROT_READ);
   if (err != 0) {
     fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
     exit(3);
@@ -307,8 +305,8 @@ struct generation *new_gen(struct heap_header *h, int index) {
 
 // new_gen_between will free up space on a generation by creating a child and
 // moving half its children to said child.
-struct generation *
-new_gen_between(struct heap_header *heap, struct generation *parent) {
+struct generation *new_gen_between(struct heap_header *heap,
+                                   struct generation *parent) {
   struct generation *child = new_gen(heap, parent->gen);
   child->i.committed = parent->i.committed;
 
@@ -328,11 +326,8 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   void *addr = i->si_addr;
 
   if (handling_segv) {
-    fprintf(
-        stderr,
-        "SEGFAULT at %p while already handling SEGV for %p\n",
-        addr,
-        handling_segv);
+    fprintf(stderr, "SEGFAULT at %p while already handling SEGV for %p\n", addr,
+            handling_segv);
     exit(2);
   }
 
@@ -351,14 +346,18 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
     exit(2);
   }
 
+#ifdef DEBUG_LOGGING
   fprintf(stderr, "! hit %p\n", addr);
+#endif
 
   assert(heap->working != heap->committed);
 
   struct page_from_hit phit = {.hit = addr, .p = NULL, .index = -1};
   walk_nodes((struct node *)heap->root, find_page, (void *)&phit);
 
+#ifdef DEBUG_LOGGING
   fprintf(stderr, "! turns out the page is %p\n", (void *)phit.p);
+#endif
 
   assert(phit.p != NULL);
   assert(phit.index != -1);
@@ -368,8 +367,8 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   assert(hit_page->i.type == SNAP_NODE_PAGE);
   assert(hit_page->i.committed);
 
-  int err = mprotect(
-      (void *)hit_page, hit_page->pages * PAGE_SIZE, PROT_READ | PROT_WRITE);
+  int err = mprotect((void *)hit_page, hit_page->pages * PAGE_SIZE,
+                     PROT_READ | PROT_WRITE);
   if (err != 0) {
     fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
     exit(3);
@@ -391,7 +390,9 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   walk_nodes((struct node *)heap->working, first_free_slot, &slot);
 
   if (slot.target == NULL) {
+#ifdef DEBUG_LOGGING
     fprintf(stderr, "did one of those fancy moves\n");
+#endif
 
     new_gen_between(heap, heap->working);
 
@@ -408,12 +409,10 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   hit_page->i.committed = 0;
   slot.target->c[slot.index] = (struct node *)hit_page;
 
-  fprintf(
-      stderr,
-      "! duplicated %p-%p to %p\n",
-      (void *)hit_page,
-      (char *)hit_page + PAGE_SIZE - 1,
-      (void *)new_page);
+#ifdef DEBUG_LOGGING
+  fprintf(stderr, "! duplicated %p-%p to %p\n", (void *)hit_page,
+          (char *)hit_page + PAGE_SIZE - 1, (void *)new_page);
+#endif
 
   handling_segv = NULL;
 }
@@ -467,11 +466,8 @@ struct heap_header *snap_init(char *argv[], char *db_path) {
     heap->root = initial_gen;
 
   } else if (heap->v != 0xffca) {
-    fprintf(
-        stderr,
-        "got a bad snapshot, %d (expected) != %d (actual)",
-        0xffca,
-        heap->v);
+    fprintf(stderr, "got a bad snapshot, %d (expected) != %d (actual)", 0xffca,
+            heap->v);
     exit(1);
   }
 
@@ -494,21 +490,30 @@ int snap_commit(struct heap_header *heap) {
   fflush(event_log);
 #endif
 
+#ifdef DEBUG_LOGGING
   fprintf(stderr, "BEGINNING COMMIT\n");
+#endif
+
   int flagged = 0;
   walk_nodes((struct node *)heap->working, set_committed, &flagged);
   walk_nodes((struct node *)heap->working, set_readonly, NULL);
 
+#ifdef DEBUG_LOGGING
   fprintf(stderr, "committed %d nodes\n", flagged);
-
   fprintf(stderr, "SETTING READONLY\n");
+#endif
 
   walk_nodes((struct node *)heap->root, verify_all_committed, NULL);
+
+#ifdef DEBUG_LOGGING
   fprintf(stderr, "UPDATING COMMIT BIT\n");
+#endif
 
   heap->committed = heap->working;
 
+#ifdef DEBUG_LOGGING
   fprintf(stderr, "COMMIT COMPLETE\n");
+#endif
 
   return heap->committed->gen;
 }
@@ -561,7 +566,10 @@ int first_gen_for_id(struct node *n, void *d) {
 }
 
 void snap_checkout(struct heap_header *heap, int generation) {
+
+#ifdef DEBUG_LOGGING
   fprintf(stderr, "BEGINNING CHECKOUT\n");
+#endif
 
   assert(heap->committed == heap->working);
 
@@ -571,6 +579,9 @@ void snap_checkout(struct heap_header *heap, int generation) {
   assert(fid.g->gen == generation);
 
   if (heap->committed->gen == generation) {
+#ifdef DEBUG_LOGGING
+    fprintf(stderr, "CHECKOUT DONE\n");
+#endif
     return;
   }
 
@@ -590,7 +601,9 @@ void snap_checkout(struct heap_header *heap, int generation) {
   };
   walk_nodes((struct node *)heap->root, pages_up_to_gen, &s);
 
+#ifdef DEBUG_LOGGING
   fprintf(stderr, "swapping %d pages\n", s.count);
+#endif
 
   for (int i = 0; i < s.count; i++) {
     if (s.p[i] != s.p[i]->real_addr) {
@@ -625,7 +638,9 @@ void snap_checkout(struct heap_header *heap, int generation) {
   heap->committed = fid.g;
   heap->working = fid.g;
 
+#ifdef DEBUG_LOGGING
   fprintf(stderr, "COMPLETED CHECKOUT\n");
+#endif
 }
 
 int snap_begin_mut(struct heap_header *heap) {
@@ -634,16 +649,17 @@ int snap_begin_mut(struct heap_header *heap) {
   fflush(event_log);
 #endif
 
+#ifdef DEBUG_LOGGING
   fprintf(stderr, "BEGINNING MUT\n");
+#endif
 
   assert(heap->working == heap->committed);
   walk_nodes((struct node *)heap->root, verify_all_committed, NULL);
 
-  fprintf(
-      stderr,
-      "rev: %d, generation at: %p\n",
-      heap->working->gen,
-      (void *)heap->working);
+#ifdef DEBUG_LOGGING
+  fprintf(stderr, "rev: %d, generation at: %p\n", heap->working->gen,
+          (void *)heap->working);
+#endif
 
   struct tree_slot slot = {.index = -1, .target = NULL};
   walk_nodes((struct node *)heap->committed, first_free_slot, &slot);
@@ -662,7 +678,9 @@ int snap_begin_mut(struct heap_header *heap) {
   slot.target->c[slot.index] = (struct node *)next;
   heap->working = next;
 
+#ifdef DEBUG_LOGGING
   fprintf(stderr, "working now: %d\n", heap->working->gen);
+#endif
 
   assert(heap->working != heap->committed);
   assert(heap->committed->gen != heap->working->gen);
@@ -692,9 +710,8 @@ struct segment *page_new_segment(struct page *p, size_t bytes) {
   assert(page_can_fit(p, bytes));
 
   void *last_free = page_data_start(p);
-  struct segment *seg =
-      (struct segment
-           *)(((char *)last_free + 1) - (bytes + sizeof(struct segment)));
+  struct segment *seg = (struct segment *)(((char *)last_free + 1) -
+                                           (bytes + sizeof(struct segment)));
 
   *seg = (struct segment){
       .used = 1,

@@ -113,3 +113,59 @@ func TestLuavalCheckout(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "null\n", string(out))
 }
+
+func TestLuaTableCheckout(t *testing.T) {
+	db, err := ioutil.TempFile("", "luaval_table_checkout")
+	assert.NoError(t, err)
+	defer os.Remove(db.Name())
+
+	cmd := exec.Command("./luaval", "-d", db.Name())
+	cmd.Dir = "../"
+	_, err = cmd.Output()
+	assert.NoError(t, err)
+
+	cmd = exec.Command("./luaval", "-d", db.Name(), "-e", "x = {}")
+	cmd.Dir = "../"
+	out, err := cmd.Output()
+	assert.NoError(t, err)
+	assert.Equal(t, "null\n", string(out))
+
+	cmd = exec.Command("./luaval", "-d", db.Name(), "-e", "x['first'] = 1")
+	cmd.Dir = "../"
+	out, err = cmd.Output()
+	assert.NoError(t, err)
+	assert.Equal(t, "null\n", string(out))
+
+	cmd = exec.Command("./luaval", "-d", db.Name(), "-e", "x['second'] = 2")
+	cmd.Dir = "../"
+	out, err = cmd.Output()
+	assert.NoError(t, err)
+	assert.Equal(t, "null\n", string(out))
+
+	cmd = exec.Command("./luaval", "-d", db.Name(), "-e", "x['third'] = 3")
+	cmd.Dir = "../"
+	out, err = cmd.Output()
+	assert.NoError(t, err)
+	assert.Equal(t, "null\n", string(out))
+
+	cmd = exec.Command("./luaval", "-d", db.Name(), "-e", "return x")
+	cmd.Dir = "../"
+	out, err = cmd.Output()
+	assert.NoError(t, err)
+	assert.Contains(t, string(out), "\"first\": 1")
+	assert.Contains(t, string(out), "\"second\": 2")
+	assert.Contains(t, string(out), "\"third\": 3")
+
+	cmd = exec.Command("./luaval", "-d", db.Name(), "-c", "4")
+	cmd.Dir = "../"
+	_, err = cmd.Output()
+	assert.NoError(t, err)
+
+	cmd = exec.Command("./luaval", "-d", db.Name(), "-e", "return x")
+	cmd.Dir = "../"
+	out, err = cmd.Output()
+	assert.NoError(t, err)
+	assert.Contains(t, string(out), "\"first\": 1")
+	assert.Contains(t, string(out), "\"second\": 2")
+	assert.NotContains(t, string(out), "\"third\": 3")
+}

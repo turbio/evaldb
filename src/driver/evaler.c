@@ -18,9 +18,9 @@ void walk_generations(struct snap_generation *g) {
 }
 
 void list_generations(struct heap_header *heap) {
-  walk_generations(heap->root);
-  printf("working: %d\n", heap->working->gen);
+  printf("  working: %d\n", heap->working->gen);
   printf("committed: %d\n", heap->committed->gen);
+  walk_generations(heap->root);
 }
 
 int from_eval_arg(struct gengetopt_args_info args, struct heap_header *heap) {
@@ -57,13 +57,18 @@ int from_eval_arg(struct gengetopt_args_info args, struct heap_header *heap) {
   }
 
   char *rstr = json_dumps(result, JSON_ENCODE_ANY);
-  fprintf(stdout, "%s\n", rstr);
+
+  char rstrc[strlen(rstr)];
+  strcpy(rstrc, rstr);
 
   free(rstr);
   json_decref(result);
   json_decref(interp_args);
 
-  snap_commit(heap);
+  int gen = snap_commit(heap);
+
+  fprintf(stdout, "%s\n", rstrc);
+  // fprintf(stdout, "generation: %d\n", gen);
 
   return 0;
 }
@@ -164,7 +169,9 @@ int main(int argc, char *argv[]) {
   }
 
   if (!heap->user_ptr) {
+#ifdef DEBUG_LOGGING
     fprintf(stderr, "CREATING INITIAL STATE\n");
+#endif
 
     if (create_init(heap)) {
       fprintf(stderr, "fatal, unable to create evaler\n");
@@ -174,7 +181,9 @@ int main(int argc, char *argv[]) {
     assert(heap->user_ptr != NULL);
 
     snap_commit(heap);
+#ifdef DEBUG_LOGGING
     fprintf(stderr, "CREATED INITIAL STATE\n");
+#endif
   } else {
     assert(heap->user_ptr != NULL);
   }

@@ -86,8 +86,6 @@ func TestDuktapeMarshal(t *testing.T) {
 }
 
 func TestDuktapeCheckout(t *testing.T) {
-	t.Skip() // TODO(turbio)
-
 	db, err := ioutil.TempFile("", "duktape_checkout")
 	assert.NoError(t, err)
 	defer os.Remove(db.Name())
@@ -98,20 +96,20 @@ func TestDuktapeCheckout(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "null\n", string(out))
 
-	cmd = exec.Command("./duktape", "-d", db.Name(), "-e", "return v")
+	cmd = exec.Command("./duktape", "-d", db.Name(), "-e", "return typeof v")
 	cmd.Dir = "../"
 	out, err = cmd.Output()
 	assert.NoError(t, err)
-	assert.Equal(t, "54321\n", string(out))
+	assert.Equal(t, "\"number\"\n", string(out))
 
 	cmd = exec.Command("./duktape", "-d", db.Name(), "-c", "0")
 	cmd.Dir = "../"
 	_, err = cmd.Output()
 	assert.NoError(t, err)
 
-	cmd = exec.Command("./duktape", "-d", db.Name(), "-e", "return v")
+	cmd = exec.Command("./duktape", "-d", db.Name(), "-e", "return typeof v")
 	cmd.Dir = "../"
 	out, err = cmd.Output()
 	assert.NoError(t, err)
-	assert.Equal(t, "null\n", string(out))
+	assert.Equal(t, "\"undefined\"\n", string(out))
 }
