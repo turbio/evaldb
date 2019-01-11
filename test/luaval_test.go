@@ -156,7 +156,7 @@ func TestLuaTableCheckout(t *testing.T) {
 	assert.Contains(t, string(out), "\"second\": 2")
 	assert.Contains(t, string(out), "\"third\": 3")
 
-	cmd = exec.Command("./luaval", "-d", db.Name(), "-c", "4")
+	cmd = exec.Command("./luaval", "-d", db.Name(), "-c", "3")
 	cmd.Dir = "../"
 	_, err = cmd.Output()
 	assert.NoError(t, err)

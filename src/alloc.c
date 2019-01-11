@@ -54,8 +54,13 @@ void *open_db(const char *path, size_t size) {
     return NULL;
   }
 
-  void *mem = mmap(MAP_START_ADDR, size, PROT_READ | PROT_WRITE,
-                   MAP_FIXED | MAP_SHARED, fd, 0);
+  void *mem = mmap(
+      MAP_START_ADDR,
+      size,
+      PROT_READ | PROT_WRITE,
+      MAP_FIXED | MAP_SHARED,
+      fd,
+      0);
   if (mem == MAP_FAILED) {
     fprintf(stderr, "db map failed  %s\n", strerror(errno));
     return NULL;
@@ -188,8 +193,8 @@ int verify_all_committed(struct node *n, void *d) {
 
 struct page *new_page(struct heap_header *heap, size_t pages) {
   struct page *f = heap->last_page =
-      (struct page *)((char *)heap->last_page +
-                      (heap->last_page->pages * PAGE_SIZE));
+      (struct page
+           *)((char *)heap->last_page + (heap->last_page->pages * PAGE_SIZE));
 
   *f = (struct page){
       .i = {.type = SNAP_NODE_PAGE, .committed = 0},
@@ -217,8 +222,11 @@ int set_readonly(struct node *n, void *d) {
   int err = mprotect((void *)p, PAGE_SIZE * p->pages, PROT_READ);
   if (err != 0) {
     fprintf(stderr, "failed to unmark write pages %s\n", strerror(errno));
-    fprintf(stderr, "%p - %p", (void *)p,
-            (void *)((char *)p + (PAGE_SIZE * p->pages)));
+    fprintf(
+        stderr,
+        "%p - %p",
+        (void *)p,
+        (void *)((char *)p + (PAGE_SIZE * p->pages)));
     exit(3);
   }
 
@@ -305,8 +313,8 @@ struct generation *new_gen(struct heap_header *h, int index) {
 
 // new_gen_between will free up space on a generation by creating a child and
 // moving half its children to said child.
-struct generation *new_gen_between(struct heap_header *heap,
-                                   struct generation *parent) {
+struct generation *
+new_gen_between(struct heap_header *heap, struct generation *parent) {
   struct generation *child = new_gen(heap, parent->gen);
   child->i.committed = parent->i.committed;
 
@@ -326,8 +334,11 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   void *addr = i->si_addr;
 
   if (handling_segv) {
-    fprintf(stderr, "SEGFAULT at %p while already handling SEGV for %p\n", addr,
-            handling_segv);
+    fprintf(
+        stderr,
+        "SEGFAULT at %p while already handling SEGV for %p\n",
+        addr,
+        handling_segv);
     exit(2);
   }
 
@@ -367,8 +378,8 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   assert(hit_page->i.type == SNAP_NODE_PAGE);
   assert(hit_page->i.committed);
 
-  int err = mprotect((void *)hit_page, hit_page->pages * PAGE_SIZE,
-                     PROT_READ | PROT_WRITE);
+  int err = mprotect(
+      (void *)hit_page, hit_page->pages * PAGE_SIZE, PROT_READ | PROT_WRITE);
   if (err != 0) {
     fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
     exit(3);
@@ -410,8 +421,12 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   slot.target->c[slot.index] = (struct node *)hit_page;
 
 #ifdef DEBUG_LOGGING
-  fprintf(stderr, "! duplicated %p-%p to %p\n", (void *)hit_page,
-          (char *)hit_page + PAGE_SIZE - 1, (void *)new_page);
+  fprintf(
+      stderr,
+      "! duplicated %p-%p to %p\n",
+      (void *)hit_page,
+      (char *)hit_page + PAGE_SIZE - 1,
+      (void *)new_page);
 #endif
 
   handling_segv = NULL;
@@ -466,8 +481,11 @@ struct heap_header *snap_init(char *argv[], char *db_path) {
     heap->root = initial_gen;
 
   } else if (heap->v != 0xffca) {
-    fprintf(stderr, "got a bad snapshot, %d (expected) != %d (actual)", 0xffca,
-            heap->v);
+    fprintf(
+        stderr,
+        "got a bad snapshot, %d (expected) != %d (actual)",
+        0xffca,
+        heap->v);
     exit(1);
   }
 
@@ -539,11 +557,19 @@ int pages_up_to_gen(struct node *n, void *d) {
   struct page *page = (struct page *)n;
 
   if (s->p) {
+    for (int i = 0; i < s->count; i++) {
+      if (s->p[i]->real_addr == page->real_addr) {
+        s->p[i] = page;
+        goto exit;
+      }
+    }
+
     s->p[s->count] = page;
   }
 
   s->count++;
 
+exit:
   return WALK_CONTINUE;
 }
 
@@ -657,8 +683,11 @@ int snap_begin_mut(struct heap_header *heap) {
   walk_nodes((struct node *)heap->root, verify_all_committed, NULL);
 
 #ifdef DEBUG_LOGGING
-  fprintf(stderr, "rev: %d, generation at: %p\n", heap->working->gen,
-          (void *)heap->working);
+  fprintf(
+      stderr,
+      "rev: %d, generation at: %p\n",
+      heap->working->gen,
+      (void *)heap->working);
 #endif
 
   struct tree_slot slot = {.index = -1, .target = NULL};
@@ -710,8 +739,9 @@ struct segment *page_new_segment(struct page *p, size_t bytes) {
   assert(page_can_fit(p, bytes));
 
   void *last_free = page_data_start(p);
-  struct segment *seg = (struct segment *)(((char *)last_free + 1) -
-                                           (bytes + sizeof(struct segment)));
+  struct segment *seg =
+      (struct segment
+           *)(((char *)last_free + 1) - (bytes + sizeof(struct segment)));
 
   *seg = (struct segment){
       .used = 1,
