@@ -10,17 +10,25 @@
 
 <body>
   <div class="headbar">
-    evaldb
+    db: <input type="text" value="..." readonly />
   </div>
   <div class="create-db">
-    <h1>Create a Database?</h1>
+    <h1>Language?</h1>
     <form action="/create" method="POST">
-      <input type="text" name="name" placeholder="db name"/>
-      <input type="submit" value="go"/>
+      <input id="name" type="hidden" name="name" />
+      <select name="lang">
+        <option value="luaval">Lua (PUC)</option>
+        <option value="duktape">Javascript (duktape)</option>
+      </select>
+      <input type="submit" value="create"/>
     </form>
   </div>
   <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
   <script src="/script.js" charset="utf-8"></script>
+  <script>
+    $('.headbar > input').attr('value', dbname);
+    $('#name').attr('value', dbname);
+  </script>
 </body>
 
 </html>

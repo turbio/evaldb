@@ -9,63 +9,74 @@ import (
 	"github.com/boltdb/bolt"
 )
 
+var errDBExists = errors.New("db already exists")
+var errDBNotExists = errors.New("db does not exist")
+
 var dbsBucket = []byte("dbs")
 
 var db *bolt.DB
 
-func createDB(dbid string) error {
+func hasDB(dbid string) bool {
+	found := false
+
+	db.View(func(tx *bolt.Tx) error {
+		rdbs := tx.Bucket(dbsBucket)
+		found = rdbs.Bucket([]byte(dbid)) != nil
+		return nil
+	})
+
+	return found
+}
+
+func createDB(dbid, lang string) error {
 	return db.Update(func(tx *bolt.Tx) error {
 		rdbs := tx.Bucket(dbsBucket)
 		exists := rdbs.Bucket([]byte(dbid)) != nil
 		if exists {
-			return errors.New("db already exists")
+			return errDBExists
 		}
 
-		_, err := rdbs.CreateBucket([]byte(dbid))
+		newDB, err := rdbs.CreateBucket([]byte(dbid))
+		if err != nil {
+			return err
+		}
+
+		err = newDB.Put([]byte("lang"), []byte(lang))
+		if err != nil {
+			return err
+		}
+
+		_, err = newDB.CreateBucket([]byte("logs"))
 		return err
 	})
 }
 
-func logQuery(dbid string, q *query) (string, error) {
-	seqs := ""
-
-	return seqs, db.Update(func(tx *bolt.Tx) error {
-		dbb := tx.Bucket(dbsBucket).Bucket([]byte(dbid))
-		if dbb == nil {
-			return errors.New("db does not exist")
-		}
-
-		seq, _ := dbb.NextSequence()
-		seqs = strconv.FormatUint(seq, 10)
-
-		j, err := json.Marshal(q)
-		if err != nil {
-			return err
-		}
-
-		return dbb.Put([]byte(seqs+".q"), j)
-	})
-}
-
-func logResult(dbid string, r *queryResult) error {
+func logTransac(dbid string, t *transac) error {
 	return db.Update(func(tx *bolt.Tx) error {
 		dbb := tx.Bucket(dbsBucket).Bucket([]byte(dbid))
 		if dbb == nil {
-			return errors.New("db does not exist")
+			return errDBNotExists
 		}
 
-		j, err := json.Marshal(r)
+		logs := dbb.Bucket([]byte("logs"))
+		if logs == nil {
+			return errors.New("internal error")
+		}
+
+		j, err := json.Marshal(t)
 		if err != nil {
 			return err
 		}
 
-		return dbb.Put([]byte(r.Seq+".r"), j)
+		s, _ := logs.NextSequence()
+
+		return logs.Put([]byte(strconv.FormatUint(s, 10)+".t"), j)
 	})
 }
 
 func openDB() {
 	var err error
-	db, err = bolt.Open("./db/global", 0666, nil)
+	db, err = bolt.Open("./db/__global", 0666, nil)
 	if err != nil {
 		log.Fatalln("unable to open global db:", err)
 	}
@@ -78,7 +89,7 @@ func openDB() {
 
 		dbb.ForEach(func(k []byte, v []byte) error {
 			d := dbb.Bucket(k)
-			log.Printf("db: %s with %d keys", k, d.Stats().KeyN)
+			log.Printf("db: %s: with %d keys", k, d.Stats().KeyN)
 
 			d.ForEach(func(k []byte, v []byte) error {
 				log.Printf("\t%s: %s", k, v)

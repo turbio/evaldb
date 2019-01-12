@@ -6,9 +6,21 @@ body {
   font-size: 12px;
 }
 
-input {
+input,
+select,
+button {
   border: solid 1px black;
   padding: 0.5em;
+  background: white;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:hover {
+  background: black;
+  color: white;
 }
 
 .query {
@@ -113,4 +125,8 @@ input {
   padding: 1em;
   background: black;
   color: white;
+}
+
+.create-db {
+  text-align: center;
 }

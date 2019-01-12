@@ -16,8 +16,6 @@ import (
 	"time"
 )
 
-const defaultDB = "default"
-
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
@@ -25,7 +23,7 @@ func init() {
 type query struct {
 	Code string                 `json:"code"`
 	Args map[string]interface{} `json:"args"`
-	Seq  string                 `json:"seq"`
+	Gen  *int                   `json:"gen,omitempty"`
 }
 
 type queryResult struct {
@@ -33,7 +31,13 @@ type queryResult struct {
 	Error    interface{} `json:"error,omitempty"`
 	Warm     bool        `json:"warm"`
 	WallTime uint64      `json:"walltime"`
-	Seq      string      `json:"seq"`
+	Gen      int         `json:"gen"`
+	Parent   int         `json:"parent"`
+}
+
+type transac struct {
+	Query  query       `json:"query"`
+	Result queryResult `json:"result"`
 }
 
 type evaler struct {
@@ -49,7 +53,7 @@ var evalers = []*evaler{}
 var elock = sync.RWMutex{}
 
 func newEvaler(db string) (*evaler, error) {
-	cmd := exec.Command("./luaval", "-d", "./db/__"+db, "-s")
+	cmd := exec.Command("./luaval", "-d", "./db/"+db, "-s")
 	cmd.Stderr = os.Stderr
 
 	stdin, err := cmd.StdinPipe()
@@ -137,19 +141,9 @@ func parseQuery(w http.ResponseWriter, r *http.Request) (*query, bool) {
 		return &q, true
 	}
 
-	if err := r.ParseForm(); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(err.Error()))
-		return nil, false
-	}
-
-	q := &query{
-		Code: r.FormValue("code"),
-		Seq:  r.FormValue("seq"),
-		Args: map[string]interface{}{},
-	}
-
-	return q, true
+	w.WriteHeader(http.StatusBadRequest)
+	w.Write([]byte("json only"))
+	return nil, false
 }
 
 func memgraph(w http.ResponseWriter, r *http.Request) {
@@ -161,7 +155,13 @@ func memgraph(w http.ResponseWriter, r *http.Request) {
 		renderer = exec.Command("dot", "-Tsvg")
 	}
 
-	grapher := exec.Command("./memgraph", "-d", "./db/__"+defaultDB)
+	db := r.URL.Query().Get("db")
+
+	if db == "" || !alnum(db) {
+		return
+	}
+
+	grapher := exec.Command("./memgraph", "-d", "./db/"+db)
 
 	if r.URL.Query().Get("labels") != "" {
 		grapher.Args = append(grapher.Args, "-l")
@@ -212,6 +212,13 @@ func eval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	dbname := strings.TrimPrefix(r.URL.Path, "/eval/")
+	if !hasDB(dbname) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("db doesn't exist"))
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestSize)
 
 	q, ok := parseQuery(w, r)
@@ -222,17 +229,12 @@ func eval(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	e, fresh, err := acquireEvaler(defaultDB)
+	e, fresh, err := acquireEvaler(dbname)
 	if err != nil {
 		panic(err)
 	}
 
 	defer e.release()
-
-	seq, err := logQuery(defaultDB, q)
-	if err != nil {
-		panic(err)
-	}
 
 	startAt := time.Now()
 
@@ -282,9 +284,14 @@ func eval(w http.ResponseWriter, r *http.Request) {
 
 	result.Warm = !fresh
 	result.WallTime = uint64(time.Since(startAt))
-	result.Seq = seq
 
-	logResult(defaultDB, &result)
+	err = logTransac(dbname, &transac{
+		Query:  *q,
+		Result: result,
+	})
+	if err != nil {
+		panic(err)
+	}
 
 	remarsh, err := json.Marshal(&result)
 	if err != nil {
@@ -295,15 +302,80 @@ func eval(w http.ResponseWriter, r *http.Request) {
 	w.Write(remarsh)
 }
 
-func main() {
-	openDB()
-	err := createDB(defaultDB)
-	if err != nil {
-		log.Println("info:", err)
+func alnum(str string) bool {
+	for _, c := range str {
+		if (c < 'a' || c > 'z') &&
+			(c < 'A' || c > 'Z') &&
+			(c < '0' || c > '9') {
+			return false
+		}
 	}
 
-	http.HandleFunc("/eval", eval)
+	return true
+}
+
+func create(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(err.Error()))
+		return
+	}
+
+	name := r.FormValue("name")
+	lang := r.FormValue("lang")
+
+	if hasDB(name) {
+		http.Redirect(w, r, "/query/#"+name, http.StatusFound)
+		return
+	}
+
+	if len(name) < 2 {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("name must be at least 2 characters"))
+		return
+	}
+
+	if !alnum(name) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("name must be alphanumeric"))
+		return
+	}
+
+	if lang == "" {
+		http.Redirect(w, r, "/create/#"+name, http.StatusFound)
+		return
+	}
+
+	if lang != "luaval" && lang != "duktape" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("invalid language"))
+		return
+	}
+
+	err = createDB(name, lang)
+	if err != nil {
+		if err == errDBExists {
+			http.Redirect(w, r, "/query/#"+name, http.StatusFound)
+			return
+		}
+
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/query/#"+name, http.StatusFound)
+}
+
+func main() {
+	openDB()
+
+	http.HandleFunc("/eval/", eval)
+	http.HandleFunc("/create", create)
+
 	http.HandleFunc("/memgraph.svg", memgraph)
+
+	// '/', '/query/', and '/create/'
 	http.Handle("/", http.FileServer(http.Dir("./client")))
 
 	fmt.Println(strings.Repeat("=", 50))

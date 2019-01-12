@@ -10,17 +10,22 @@
 
 <body>
   <div class="headbar">
-    evaldb
+    db: <input type="text" value="..." readonly />
   </div>
-  <div class="create-db">
-    <h1>Create a Database?</h1>
-    <form action="/create" method="POST">
-      <input type="text" name="name" placeholder="db name"/>
-      <input type="submit" value="go"/>
-    </form>
+  <div class="timeline">
+    <div class="entry initial-msg">
+      initial state
+    </div>
+    <div class="entry query">
+      <textarea class="query-code" autofocus rows="2"></textarea>
+      <button class="go-query">go</button>
+    </div>
   </div>
   <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
   <script src="/script.js" charset="utf-8"></script>
+  <script>
+    $('.headbar > input').attr('value', dbname);
+  </script>
 </body>
 
 </html>

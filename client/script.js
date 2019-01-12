@@ -1,6 +1,12 @@
+var dbname = window.location.hash.slice(1);
+
 function query(code, cb) {
-  $.post('/eval', { code }, function(data, status) {
-    cb(data);
+  $.ajax({
+    url: '/eval/' + dbname,
+    type: 'POST',
+    data: JSON.stringify({ code }),
+    contentType: 'application/json',
+    success: cb,
   });
 }
 
