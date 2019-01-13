@@ -65,10 +65,7 @@ int from_eval_arg(struct gengetopt_args_info args, struct heap_header *heap) {
   json_decref(result);
   json_decref(interp_args);
 
-  int gen = snap_commit(heap);
-
   fprintf(stdout, "%s\n", rstrc);
-  // fprintf(stdout, "generation: %d\n", gen);
 
   return 0;
 }
@@ -130,6 +127,8 @@ void server_loop(struct heap_header *heap) {
 
     json_t *result = do_eval(heap, code_str, args, &status);
 
+    int rgen = snap_commit(heap);
+
     json_decref(q);
 
     json_t *qr = json_object();
@@ -140,6 +139,8 @@ void server_loop(struct heap_header *heap) {
       json_object_set_new(qr, "object", result);
     }
 
+    json_object_set_new(qr, "gen", json_integer(rgen));
+
     char *r_str = json_dumps(qr, 0);
 
     fputs(r_str, stdout);
@@ -148,8 +149,6 @@ void server_loop(struct heap_header *heap) {
 
     json_decref(qr);
     free(r_str);
-
-    snap_commit(heap);
   }
 }
 

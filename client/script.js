@@ -44,7 +44,7 @@ function handleSubmit(entry) {
 
     var newEntry = $(
       '<div class="entry query">' +
-        '<textarea class="query-code" rows="2"></textarea>' +
+        '<textarea data-gramm_editor="false" class="query-code" rows="2"></textarea>' +
         '<button class="go-query">go</button>' +
         '</div>',
     );
