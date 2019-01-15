@@ -89,7 +89,7 @@ func openDB() {
 
 		dbb.ForEach(func(k []byte, v []byte) error {
 			d := dbb.Bucket(k)
-			log.Printf("db: %s: with %d keys", k, d.Stats().KeyN)
+			log.Printf("%s:", k)
 
 			d.ForEach(func(k []byte, v []byte) error {
 				log.Printf("\t%s: %s", k, v)

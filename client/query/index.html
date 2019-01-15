@@ -12,16 +12,8 @@
   <div class="headbar">
     db: <input type="text" value="..." readonly />
   </div>
-  <div class="timeline">
-    <div class="entry initial-msg">
-      initial state
-    </div>
-    <div class="entry query">
-      <textarea data-gramm_editor="false" class="query-code" autofocus rows="2"></textarea>
-      <button class="go-query">go</button>
-    </div>
-  </div>
-  <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+  <div id="root-timeline" class="timeline"></div>
+  <script src="/jquery-3.3.1.min.js"></script>
   <script src="/script.js" charset="utf-8"></script>
   <script>
     $('.headbar > input').attr('value', dbname);

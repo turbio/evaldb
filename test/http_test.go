@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -86,13 +87,18 @@ type query struct {
 	Seq  string `json:"seq"`
 }
 
-func makeQuery(q *query) (*queryResult, error) {
-	res, err := http.PostForm(
-		"http://localhost:5000/eval",
-		url.Values{
-			"code": {q.Code},
-			"seq":  {q.Seq},
-		},
+func makeQuery(q *query, db, lang string) (*queryResult, error) {
+	http.PostForm("http://localhost:5000/create", url.Values{
+		"name": {db},
+		"lang": {lang},
+	})
+
+	qmarsh, _ := json.Marshal(q)
+
+	res, err := http.Post(
+		"http://localhost:5000/eval/"+db,
+		"application/json",
+		bytes.NewReader(qmarsh),
 	)
 	if err != nil {
 		return nil, err
@@ -113,7 +119,7 @@ func makeQuery(q *query) (*queryResult, error) {
 }
 
 func TestSuperSimpleExpression(t *testing.T) {
-	result, err := makeQuery(&query{Code: "return 1+1"})
+	result, err := makeQuery(&query{Code: "return 1+1"}, "expr", "luaval")
 	assert.NoError(t, err)
 
 	assert.EqualValues(t, 2, result.Object)
@@ -121,13 +127,13 @@ func TestSuperSimpleExpression(t *testing.T) {
 }
 
 func TestCounting(t *testing.T) {
-	result, err := makeQuery(&query{Code: "counter = 0"})
+	result, err := makeQuery(&query{Code: "counter = 0"}, "expr", "luaval")
 	assert.NoError(t, err)
 	assert.Empty(t, result.Error)
 	assert.Nil(t, result.Object)
 
 	for i := 1; i < 100; i++ {
-		result, err := makeQuery(&query{Code: "counter = counter + 1\nreturn counter"})
+		result, err := makeQuery(&query{Code: "counter = counter + 1\nreturn counter"}, "expr", "luaval")
 		assert.NoError(t, err)
 		assert.Empty(t, result.Error)
 		assert.EqualValues(t, i, result.Object)
@@ -135,10 +141,10 @@ func TestCounting(t *testing.T) {
 }
 
 func BenchmarkCount(b *testing.B) {
-	makeQuery(&query{Code: "counter = 0"})
+	makeQuery(&query{Code: "counter = 0"}, "expr", "luaval")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		makeQuery(&query{Code: "counter = counter + 1\nreturn counter"})
+		makeQuery(&query{Code: "counter = counter + 1\nreturn counter"}, "expr", "luaval")
 	}
 }

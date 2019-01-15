@@ -65,6 +65,8 @@ int from_eval_arg(struct gengetopt_args_info args, struct heap_header *heap) {
   json_decref(result);
   json_decref(interp_args);
 
+  snap_commit(heap);
+
   fprintf(stdout, "%s\n", rstrc);
 
   return 0;
@@ -123,23 +125,27 @@ void server_loop(struct heap_header *heap) {
     const char *code_str = json_string_value(code);
     enum evaler_status status;
 
+    int parent_gen = heap->committed->gen;
+
     snap_begin_mut(heap);
 
     json_t *result = do_eval(heap, code_str, args, &status);
 
-    int rgen = snap_commit(heap);
+    int result_gen = snap_commit(heap);
 
     json_decref(q);
 
     json_t *qr = json_object();
 
     if (status) {
+      snap_checkout(heap, parent_gen);
       json_object_set_new(qr, "error", result);
     } else {
       json_object_set_new(qr, "object", result);
     }
 
-    json_object_set_new(qr, "gen", json_integer(rgen));
+    json_object_set_new(qr, "gen", json_integer(result_gen));
+    json_object_set_new(qr, "parent", json_integer(parent_gen));
 
     char *r_str = json_dumps(qr, 0);
 

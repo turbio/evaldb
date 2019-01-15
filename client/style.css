@@ -38,6 +38,7 @@ button:hover {
   background: none;
   resize: vertical;
   line-height: 1;
+  color: black;
 }
 
 .query.readonly {
@@ -47,7 +48,6 @@ button:hover {
 .query > button {
   font-family: monospace;
   font-size: 12px;
-  background: none;
   border: none;
 }
 
@@ -70,6 +70,10 @@ button:hover {
   padding-left: 12px;
 }
 
+.timeline.fork {
+  padding-top: 1em;
+}
+
 .timeline:not(.fork) {
   margin: 0 1em 0 1em;
 }
@@ -81,21 +85,28 @@ button:hover {
   right: 0;
   width: 13px;
   border-top: 1px solid black;
+  top: 0;
 }
 
 .entry {
   margin-bottom: 1em;
 }
 
-.entry.result {
+.result {
   white-space: pre;
+  padding: 0.5em;
+  display: flex;
 }
 
-.entry.error {
+.result::before {
+  content: "→";
+  display: block;
+  padding-right: 0.5em;
+}
+
+.result.error {
   background: red;
   color: white;
-  white-space: pre;
-  padding: 1em;
 }
 
 .entry::before {
@@ -113,11 +124,15 @@ button:hover {
   background: red;
 }
 
+.entry.athead::before {
+  background: blue;
+}
+
 .status-line {
   background: black;
   color: white;
   padding: 0.25em;
-  margin-top: 0.5em;
+  padding-left: 0.5em;
 }
 
 .headbar {
