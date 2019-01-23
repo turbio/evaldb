@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -52,8 +54,10 @@ type evaler struct {
 var evalers = []*evaler{}
 var elock = sync.RWMutex{}
 
+var dbpath string
+
 func newEvaler(db string) (*evaler, error) {
-	cmd := exec.Command("./luaval", "-d", "./db/"+db, "-s")
+	cmd := exec.Command("./luaval", "-d", path.Join(dbpath, db), "-s")
 	cmd.Stderr = os.Stderr
 
 	stdin, err := cmd.StdinPipe()
@@ -160,7 +164,7 @@ func memgraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	grapher := exec.Command("./memgraph", "-d", "./db/"+db)
+	grapher := exec.Command("./memgraph", "-d", path.Join(dbpath, db))
 
 	if r.URL.Query().Get("labels") != "" {
 		grapher.Args = append(grapher.Args, "-l")
@@ -391,7 +395,12 @@ func create(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	openDB()
+	dp := flag.String("path", "./db/", "path to the root folder")
+
+	flag.Parse()
+
+	openDB(path.Join(*dp, "__meta"))
+	dbpath = *dp
 
 	http.HandleFunc("/eval/", eval)
 	http.HandleFunc("/tail/", tail)

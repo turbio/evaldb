@@ -138,9 +138,9 @@ func logTransac(dbid string, t *transac) error {
 	return nil
 }
 
-func openDB() {
+func openDB(path string) {
 	var err error
-	db, err = bolt.Open("./db/__global", 0666, nil)
+	db, err = bolt.Open(path, 0666, nil)
 	if err != nil {
 		log.Fatalln("unable to open global db:", err)
 	}

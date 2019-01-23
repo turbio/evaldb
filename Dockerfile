@@ -14,6 +14,8 @@ COPY . .
 RUN go get ./cmd/evalserver
 RUN make
 
+RUN mkdir /db
+
 EXPOSE 5000
 
-CMD ./evalserver
+CMD ./evalserver -path /db
