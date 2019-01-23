@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"strconv"
+	"sync"
 
 	"github.com/boltdb/bolt"
 )
@@ -26,6 +27,52 @@ func hasDB(dbid string) bool {
 	})
 
 	return found
+}
+
+type onlog func(t *transac) bool
+
+var logsLock sync.RWMutex
+var logcbs = map[string][]onlog{}
+
+func tailDB(dbid string, cb onlog) error {
+	err := db.View(func(tx *bolt.Tx) error {
+		rdbs := tx.Bucket(dbsBucket)
+		dbb := rdbs.Bucket([]byte(dbid))
+		if dbb == nil {
+			return errors.New("internal error")
+		}
+
+		logs := dbb.Bucket([]byte("logs"))
+		if logs == nil {
+			return errors.New("internal error")
+		}
+
+		c := logs.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			var t transac
+			err := json.Unmarshal(v, &t)
+			if err == nil {
+				if !cb(&t) {
+					break
+				}
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	logsLock.Lock()
+	cbs, ok := logcbs[dbid]
+	if !ok {
+		cbs = []onlog{}
+	}
+	logcbs[dbid] = append(cbs, cb)
+	logsLock.Unlock()
+
+	return nil
 }
 
 func createDB(dbid, lang string) error {
@@ -52,7 +99,7 @@ func createDB(dbid, lang string) error {
 }
 
 func logTransac(dbid string, t *transac) error {
-	return db.Update(func(tx *bolt.Tx) error {
+	err := db.Update(func(tx *bolt.Tx) error {
 		dbb := tx.Bucket(dbsBucket).Bucket([]byte(dbid))
 		if dbb == nil {
 			return errDBNotExists
@@ -72,6 +119,23 @@ func logTransac(dbid string, t *transac) error {
 
 		return logs.Put([]byte(strconv.FormatUint(s, 10)+".t"), j)
 	})
+
+	if err != nil {
+		return err
+	}
+
+	logsLock.Lock()
+	cbs, ok := logcbs[dbid]
+	if ok {
+		for i, cb := range cbs {
+			if !cb(t) {
+				logcbs[dbid] = append(cbs[:i], cbs[+1:]...)
+			}
+		}
+	}
+	logsLock.Unlock()
+
+	return nil
 }
 
 func openDB() {

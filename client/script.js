@@ -1,17 +1,12 @@
 var dbname = window.location.hash.slice(1);
 
-var initialState = {
-  children: [],
-  type: 'initial',
+var gens = {
+  0: {
+    type: 'initial',
+  },
 };
 
-initialState.children.push({
-  parent: initialState,
-  query: { code: '' },
-  type: 'input',
-});
-
-var root = initialState;
+var head = 0;
 
 function query(req, cb) {
   $.ajax({
@@ -23,55 +18,112 @@ function query(req, cb) {
   });
 }
 
-var head = null;
+function ch(p) {
+  if (p === undefined) {
+    return [];
+  }
+
+  var c = [];
+  var k = Object.keys(gens);
+  for (var i = 0; i < k.length; i++) {
+    if (gens[k[i]].parent === p) {
+      c.push(gens[k[i]]);
+    }
+  }
+
+  return c;
+}
+
+function ng(g) {
+  var ng = {
+    type: 'result',
+  };
+
+  Object.assign(ng, g.query);
+  Object.assign(ng, g.result);
+
+  if (ng.gen > head && ng.error === undefined) {
+    head = ng.gen;
+  }
+
+  gens[ng.gen] = ng;
+  return ng;
+}
 
 render();
 
-function renderGens(gen, pnode) {
+function rdepth(gen, d) {
+  if (d === undefined) {
+    return rdepth(gen, 1);
+  }
+
+  var c = ch(gen.gen);
+
+  var sum = d;
+  for (var i = 0; i < c.length; i++) {
+    sum += rdepth(c[i], d + 1);
+  }
+
+  return sum;
+}
+
+function inp(pgen, pnode) {
   var entry = $('<div class="entry"></div>');
+
+  var tbox = $('<textarea class="query-code" rows="2"></textarea>');
+  entry
+    .addClass('query')
+    .append(tbox)
+    .append($('<button class="go-query">&nbsp;go&nbsp;</button>'))
+    .data('gen', pgen);
+
+  pnode.append(entry);
+
+  if (head === pgen) {
+    entry.addClass('athead');
+
+    entry.find('textarea').focus();
+    entry
+      .find('textarea')
+      .get(0)
+      .scrollIntoView();
+  }
+}
+
+function rtree(gid, pnode) {
+  var entry = $('<div class="entry"></div>');
+
+  var gen = gens[gid];
 
   if (gen.type === 'initial') {
     entry.addClass('initial-msg');
     entry.text('initial state');
-  } else if (gen.type === 'input') {
-    var tbox = $('<textarea class="query-code" rows="2"></textarea>');
-    if (gen.query && gen.query.code) {
-      tbox.text(gen.query.code);
-    }
-    entry
-      .addClass('query')
-      .append(tbox)
-      .append($('<button class="go-query">&nbsp;go&nbsp;</button>'))
-      .data('gen', gen);
-
-    if (head === gen.parent || gen.gen === undefined) {
-      entry.addClass('athead');
-    }
   } else if (gen.type === 'result') {
-    var result = gen.result;
-    var error = result.error;
-    var object = result.object;
+    var error = gen.error;
+    var object = gen.object;
 
     entry.append(
-      $('<div class="query readonly"></div>')
-        .append(
-          $(
-            '<textarea class="query-code" readonly="readonly"></textarea>',
-          ).text(gen.query.code),
-        )
-        .append($('<button class="edit-query">edit</button>').data('gen', gen)),
+      $('<div class="query readonly"></div>').append(
+        $('<textarea class="query-code" readonly="readonly"></textarea>').text(
+          gen.code,
+        ),
+      ),
+      //.append($('<button class="edit-query">edit</button>').data('gen', gid)),
     );
 
     entry.append(
       $('<div class="status-line"></div>').text(
         'gen: ' +
-          result.gen +
+          gid +
+          ' | ' +
+          'pgen: ' +
+          gen.parent +
           ' | ' +
           'walltime: ' +
-          result.walltime / 1e6 +
+          gen.walltime / 1e6 +
           'ms' +
           ' | ' +
-          (result.warm ? 'warm' : 'cold'),
+          (gen.warm ? 'warm' : 'cold'),
       ),
     );
 
@@ -91,55 +143,65 @@ function renderGens(gen, pnode) {
 
   pnode.append(entry);
 
-  if (gen.children) {
-    for (var i = 0; i < gen.children.length; i++) {
-      if (i !== gen.children.length - 1) {
+  var c = ch(gid);
+
+  for (var i = 0; i < c.length; i++) {
+    if (i !== c.length - 1 || c[i].error !== undefined) {
+      var gen = c[i];
+
+      if (!gen.forceRender && rdepth(gen) > 1) {
+        pnode.append(
+          $('<div class="timeline fork"></div>').append(
+            $('<div class="entry more">show more...</div>').on(
+              'click',
+              function(gen) {
+                gen.forceRender = true;
+                render();
+              }.bind(null, gen),
+            ),
+          ),
+        );
+      } else {
         var fork = $('<div class="timeline fork"></div>');
         pnode.append(fork);
-        renderGens(gen.children[i], fork);
-      } else {
-        renderGens(gen.children[i], pnode);
+        rtree(c[i].gen, fork);
+      }
+    } else {
+      rtree(c[i].gen, pnode);
+    }
+  }
+
+  if (c.length === 0) {
+    if (gen.error === undefined) {
+      inp(gid, pnode);
+    }
+  } else {
+    for (var i = 0; i < c.length; i++) {
+      if (c[i].error === undefined) {
+        return;
       }
     }
+
+    inp(gid, pnode);
   }
 }
 
 function render() {
   $('#root-timeline').empty();
-  renderGens(root, $('#root-timeline'));
+  rtree(0, $('#root-timeline'));
 }
 
 function handleSubmit(entry) {
   var q = entry.children('.query-code');
-  var inputEntry = entry.data('gen');
+  var gen = entry.data('gen');
 
   var req = {
     code: q.val(),
-    gen: inputEntry === head ? undefined : inputEntry.gen,
+    gen: gen === head ? undefined : gen,
   };
 
   query(req, function(result) {
-    inputEntry.query = req;
-    inputEntry.result = result;
-    inputEntry.children = [];
-    inputEntry.type = 'result';
-
-    if (result.error) {
-      inputEntry.parent.children.push({
-        type: 'input',
-        parent: inputEntry.parent,
-        gen: inputEntry.gen,
-      });
-      head = inputEntry.parent;
-    } else {
-      inputEntry.children.push({
-        type: 'input',
-        parent: inputEntry,
-        gen: result.gen,
-      });
-      head = inputEntry;
-    }
-
+    ng({ query: req, result: result });
     render();
   });
 }
@@ -159,9 +221,11 @@ $(document).on('click', '.go-query', function() {
 
 $(document).on('click', '.edit-query', function() {
   var gen = $(this).data('gen');
-  gen.parent.children.unshift({
-    parent: gen.parent,
-    gen: gen.result.parent,
+
+  var genp = parent(gen);
+
+  genp.children.unshift({
+    gen: gen.parent,
     type: 'input',
     query: {
       code: $(this)
@@ -178,4 +242,11 @@ $(document).on('keypress', '.query-code:not(.readonly)', function(ev) {
     $(this).blur();
     handleSubmit($(this).parent());
   }
+});
+
+var es = new EventSource('/tail/' + dbname);
+es.addEventListener('transac', function(e) {
+  const t = JSON.parse(e.data);
+  ng(t);
+  render();
 });

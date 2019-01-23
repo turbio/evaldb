@@ -31,7 +31,6 @@ button:hover {
 .query > textarea {
   margin: 0;
   border: none;
-  border-right: 1px solid black;
   width: 100%;
   font-family: monospace;
   font-size: 12px;
@@ -49,6 +48,7 @@ button:hover {
   font-family: monospace;
   font-size: 12px;
   border: none;
+  border-left: 1px solid black;
 }
 
 .query:not(.readonly) > button {
@@ -126,6 +126,18 @@ button:hover {
 
 .entry.athead::before {
   background: blue;
+}
+
+.entry.more {
+  cursor: pointer;
+}
+
+.entry.more:hover {
+  color: grey;
+}
+
+.entry.more:hover::before {
+  background: grey;
 }
 
 .status-line {

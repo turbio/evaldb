@@ -147,7 +147,6 @@ func parseQuery(w http.ResponseWriter, r *http.Request) (*query, bool) {
 }
 
 func memgraph(w http.ResponseWriter, r *http.Request) {
-
 	var renderer *exec.Cmd
 	if r.URL.Query().Get("render") == "neato" {
 		renderer = exec.Command("neato", "-Tsvg")
@@ -199,6 +198,30 @@ func memgraph(w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		w.WriteHeader(500)
 	}
+}
+
+func tail(w http.ResponseWriter, r *http.Request) {
+	target := strings.TrimPrefix(r.URL.Path, "/tail/")
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	f := w.(http.Flusher)
+
+	err := tailDB(target, func(t *transac) bool {
+		data, _ := json.Marshal(t)
+		_, err := w.Write([]byte("event: transac\ndata: " + string(data) + "\n\n"))
+		if err != nil {
+			return false
+		}
+
+		f.Flush()
+
+		return true
+	})
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+
+	select {}
 }
 
 func eval(w http.ResponseWriter, r *http.Request) {
@@ -371,6 +394,8 @@ func main() {
 	openDB()
 
 	http.HandleFunc("/eval/", eval)
+	http.HandleFunc("/tail/", tail)
+
 	http.HandleFunc("/create", create)
 
 	http.HandleFunc("/memgraph.svg", memgraph)
