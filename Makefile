@@ -36,8 +36,12 @@ cppcheck:
 		--suppress=missingInclude \
 		--enable=all \
 		--error-exitcode=1 \
+		--template "{file}({line}): {severity} ({id}): {message}" \
 		-i cmdline.c \
 		./src
+
+clangtidy:
+	clang-tidy ./src/*.c ./src/*/*.c
 
 evalserver: ./cmd/evalserver/*
 	go build ./cmd/evalserver

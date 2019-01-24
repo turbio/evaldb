@@ -28,3 +28,8 @@ blocks:
             - install-package valgrind libjansson-dev
             - make luaval
             - make valgrind
+        - name: clang tidy
+          commands:
+            - install-package libjansson-dev
+            - checkout
+            - make clang-tidy
