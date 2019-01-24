@@ -338,7 +338,7 @@ json_t *do_eval(
   *status = OK;
 
 abort:
-  // lua_gc(L, LUA_GCCOLLECT, 0);
+  lua_gc(L, LUA_GCCOLLECT, 0);
 
   if (ambled) {
     free(ambled);
