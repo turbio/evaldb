@@ -22,3 +22,9 @@ blocks:
             - checkout
             - install-package cppcheck
             - make cppcheck
+        - name: valgrind
+          commands:
+            - checkout
+            - install-package valgrind libjansson-dev
+            - make luaval
+            - make valgrind
