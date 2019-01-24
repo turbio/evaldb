@@ -26,6 +26,7 @@ json_t *do_eval(
     const char *key;
     json_t *value;
     int f = 1;
+    // cppcheck-suppress uninitvar
     json_object_foreach(args, key, value) {
       if (!f) {
         premable_len += strlen(key) + strlen(",");
@@ -41,6 +42,7 @@ json_t *do_eval(
     const char *key;
     json_t *value;
     int f = 1;
+    // cppcheck-suppress uninitvar
     json_object_foreach(args, key, value) {
       if (!f) {
         strcat(preamble, ",");
@@ -82,6 +84,7 @@ json_t *do_eval(
   if (argc) {
     const char *key;
     json_t *value;
+    // cppcheck-suppress uninitvar
     json_object_foreach(args, key, value) {
       char *argstr = json_dumps(value, JSON_ENCODE_ANY);
       duk_push_string(ctx, argstr);

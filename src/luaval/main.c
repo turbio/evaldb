@@ -64,6 +64,7 @@ void unmarshal(lua_State *L, json_t *v) {
 
     const char *key;
     json_t *value;
+    // cppcheck-suppress uninitvar
     json_object_foreach(v, key, value) {
       lua_pushstring(L, key);
       unmarshal(L, value);
@@ -236,6 +237,7 @@ int arg_len(json_t *args) {
   json_t *value;
 
   int start = 1;
+  // cppcheck-suppress uninitvar
   json_object_foreach(args, key, value) {
     if (!start) {
       preamble_len += strlen(", ");
@@ -283,6 +285,7 @@ json_t *do_eval(
     json_t *value;
 
     int start = 1;
+    // cppcheck-suppress uninitvar
     json_object_foreach(args, key, value) {
       if (!start) {
         strcat(preamble, ",");
@@ -315,6 +318,7 @@ json_t *do_eval(
   if (argc) {
     const char *key;
     json_t *value;
+    // cppcheck-suppress uninitvar
     json_object_foreach(args, key, value) { unmarshal(L, value); }
   }
 

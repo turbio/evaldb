@@ -32,4 +32,4 @@ blocks:
           commands:
             - install-package libjansson-dev
             - checkout
-            - make clang-tidy
+            - make clangtidy
