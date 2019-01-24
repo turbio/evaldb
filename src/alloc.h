@@ -67,12 +67,12 @@ struct snap_segment {
   size_t size; // size does not include self
 };
 
-void *snap_malloc(struct heap_header *heap, size_t n);
+void *snap_malloc(struct heap_header *heap, size_t size);
 void snap_free(struct heap_header *heap, void *ptr);
-void *snap_realloc(struct heap_header *heap, void *ptr, size_t n);
+void *snap_realloc(struct heap_header *heap, void *ptr, size_t size);
 
 struct heap_header *snap_init(char *db_path);
 
 int snap_commit(struct heap_header *heap);
 int snap_begin_mut(struct heap_header *heap);
-void snap_checkout(struct heap_header *heap, int generation);
+void snap_checkout(struct heap_header *heap, int genid);

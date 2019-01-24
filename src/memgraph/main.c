@@ -26,8 +26,8 @@ void print_segment(struct snap_segment *s) {
   printf("\"%p\" ", (void *)s);
   printf("[");
   if (args.labels_flag) {
-    printf(" label=\"%p\\nsize: %ld\"", (void *)s, s->size);
-    printf(" tooltip=\"%p\\nsize: %ld\"", (void *)s, s->size);
+    printf(" label=\"%p\\nsize: %lu\"", (void *)s, (unsigned long)s->size);
+    printf(" tooltip=\"%p\\nsize: %lu\"", (void *)s, (unsigned long)s->size);
   } else {
     printf(" label=\"\"");
   }
@@ -94,7 +94,6 @@ void print_node(struct snap_node *n) {
     printf(" color=\"#ff0000\"");
   }
   printf("]\n");
-  n++;
 }
 
 void print_node_connection(void *from, void *to) {

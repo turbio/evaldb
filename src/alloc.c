@@ -68,6 +68,7 @@ void *open_db(const char *path, size_t size) {
   return mem;
 }
 
+/*
 void *round_page_down(void *addr) {
   return (void *)((uintptr_t)addr & ~(PAGE_SIZE - 1));
 }
@@ -79,6 +80,7 @@ void *round_page_up(void *addr) {
 
   return addr;
 }
+*/
 
 enum walk_action {
   WALK_CONTINUE = 0,
@@ -394,7 +396,7 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   assert(rel.index != -1);
   assert(rel.parent->type == SNAP_NODE_GENERATION);
 
-  struct page *new_page = page_copy(heap, hit_page);
+  struct page *fresh_page = page_copy(heap, hit_page);
 
   struct tree_slot slot = {.index = -1, .target = NULL};
   walk_nodes((struct node *)heap->working, first_free_slot, &slot);
@@ -413,8 +415,8 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   assert(slot.target != NULL);
   assert(slot.index != -1);
 
-  new_page->i.committed = 1;
-  ((struct generation *)rel.parent)->c[rel.index] = (struct node *)new_page;
+  fresh_page->i.committed = 1;
+  ((struct generation *)rel.parent)->c[rel.index] = (struct node *)fresh_page;
 
   hit_page->i.committed = 0;
   slot.target->c[slot.index] = (struct node *)hit_page;
@@ -425,7 +427,7 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
       "! duplicated %p-%p to %p\n",
       (void *)hit_page,
       (char *)hit_page + PAGE_SIZE - 1,
-      (void *)new_page);
+      (void *)fresh_page);
 #endif
 
   handling_segv = NULL;
@@ -575,7 +577,7 @@ int first_gen_for_id(struct node *n, void *d) {
   return WALK_CONTINUE;
 }
 
-void snap_checkout(struct heap_header *heap, int generation) {
+void snap_checkout(struct heap_header *heap, int genid) {
 
 #ifdef DEBUG_LOGGING
   fprintf(stderr, "BEGINNING CHECKOUT\n");
@@ -583,12 +585,12 @@ void snap_checkout(struct heap_header *heap, int generation) {
 
   assert(heap->committed == heap->working);
 
-  struct gen_from_id fid = {.id = generation, .g = NULL};
+  struct gen_from_id fid = {.id = genid, .g = NULL};
   walk_nodes((struct node *)heap->root, first_gen_for_id, &fid);
   assert(fid.g != NULL);
-  assert(fid.g->gen == generation);
+  assert(fid.g->gen == genid);
 
-  if (heap->committed->gen == generation) {
+  if (heap->committed->gen == genid) {
 #ifdef DEBUG_LOGGING
     fprintf(stderr, "CHECKOUT DONE\n");
 #endif
@@ -596,7 +598,7 @@ void snap_checkout(struct heap_header *heap, int generation) {
   }
 
   struct up_to_gen_state s = {
-      .max_gen = generation,
+      .max_gen = genid,
       .p = NULL,
       .count = 0,
   };
@@ -605,7 +607,7 @@ void snap_checkout(struct heap_header *heap, int generation) {
   struct page *to_swap[s.count];
 
   s = (struct up_to_gen_state){
-      .max_gen = generation,
+      .max_gen = genid,
       .p = to_swap,
       .count = 0,
   };
@@ -772,8 +774,8 @@ int first_page_fit(struct node *n, void *d) {
   return WALK_CONTINUE;
 }
 
-void *_snap_malloc(struct heap_header *heap, size_t bytes) {
-  if (!bytes) {
+void *_snap_malloc(struct heap_header *heap, size_t size) {
+  if (!size) {
     return NULL;
   }
 
@@ -785,7 +787,7 @@ void *_snap_malloc(struct heap_header *heap, size_t bytes) {
   walk_nodes((struct node *)g, all_gen_match, &m);
   assert(m.mismatch == NULL);
 
-  struct page_fit fit = {.size = bytes, .p = NULL};
+  struct page_fit fit = {.size = size, .p = NULL};
   walk_nodes((struct node *)g, first_page_fit, &fit);
 
   if (fit.p == NULL) {
@@ -802,16 +804,16 @@ void *_snap_malloc(struct heap_header *heap, size_t bytes) {
     assert(slot.index != -1);
 
     slot.target->c[slot.index] =
-        (struct node *)new_page(heap, (bytes / PAGE_SIZE) + 1);
+        (struct node *)new_page(heap, (size / PAGE_SIZE) + 1);
 
-    fit = (struct page_fit){.size = bytes, .p = NULL};
+    fit = (struct page_fit){.size = size, .p = NULL};
     walk_nodes((struct node *)g, first_page_fit, &fit);
   }
 
   assert(fit.p != NULL);
   assert(fit.p->i.type == SNAP_NODE_PAGE);
 
-  struct segment *s = page_new_segment(fit.p, bytes);
+  struct segment *s = page_new_segment(fit.p, size);
 
   return (char *)s + sizeof(struct segment);
 }
@@ -834,20 +836,20 @@ void _snap_free(struct heap_header *heap, void *ptr) {
   s->used = 0;
 }
 
-void *snap_malloc(struct heap_header *heap, size_t bytes) {
+void *snap_malloc(struct heap_header *heap, size_t size) {
 #ifdef SNAP_EVENT_LOG_PRECOMMITED
-  fprintf(event_log, "snap_malloc %ld\n", bytes);
+  fprintf(event_log, "snap_malloc %lu\n", (unsigned long)size);
   fflush(event_log);
 #endif
 
-  if (bytes == 0) {
+  if (size == 0) {
     return NULL;
   }
 
-  void *result = _snap_malloc(heap, bytes);
+  void *result = _snap_malloc(heap, size);
 
 #ifdef SNAP_EVENT_LOG_FILE
-  fprintf(event_log, "snap_malloc %ld -> %p\n", bytes, result);
+  fprintf(event_log, "snap_malloc %lu -> %p\n", (unsigned long)size, result);
   fflush(event_log);
 #endif
 
@@ -863,14 +865,14 @@ void snap_free(struct heap_header *heap, void *ptr) {
   _snap_free(heap, ptr);
 }
 
-void *snap_realloc(struct heap_header *heap, void *ptr, size_t bytes) {
+void *snap_realloc(struct heap_header *heap, void *ptr, size_t size) {
 #ifdef SNAP_EVENT_LOG_PRECOMMITED
-  fprintf(event_log, "snap_realloc %p %ld\n", ptr, bytes);
+  fprintf(event_log, "snap_realloc %p %lu\n", ptr, (unsigned long)size);
   fflush(event_log);
 #endif
 
   if (!ptr) {
-    return _snap_malloc(heap, bytes);
+    return _snap_malloc(heap, size);
   }
 
   assert(heap->working != heap->committed);
@@ -880,17 +882,22 @@ void *snap_realloc(struct heap_header *heap, void *ptr, size_t bytes) {
   assert(phit.p != NULL);
   assert(phit.index != -1);
 
-  if (bytes == 0) {
+  if (size == 0) {
     _snap_free(heap, ptr);
     return NULL;
   }
 
-  void *result = _snap_malloc(heap, bytes);
-  memmove(result, ptr, bytes);
+  void *result = _snap_malloc(heap, size);
+  memmove(result, ptr, size);
   _snap_free(heap, ptr);
 
 #ifdef SNAP_EVENT_LOG_FILE
-  fprintf(event_log, "snap_realloc %p %ld -> %p\n", ptr, bytes, result);
+  fprintf(
+      event_log,
+      "snap_realloc %p %lu -> %p\n",
+      ptr,
+      (unsigned long)size,
+      result);
   fflush(event_log);
 #endif
 
