@@ -35,6 +35,7 @@ cppcheck:
 		--std=c99 \
 		--suppress=missingInclude \
 		--enable=all \
+		--inline-suppr \
 		--error-exitcode=1 \
 		--template "{file}({line}): {severity} ({id}): {message}" \
 		-i cmdline.c \

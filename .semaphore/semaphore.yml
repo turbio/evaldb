@@ -30,6 +30,6 @@ blocks:
             - make valgrind
         - name: clang tidy
           commands:
-            - install-package libjansson-dev
+            - install-package libjansson-dev clang-tidy clang
             - checkout
             - make clangtidy
