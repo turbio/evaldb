@@ -243,10 +243,3 @@ $(document).on('keypress', '.query-code:not(.readonly)', function(ev) {
     handleSubmit($(this).parent());
   }
 });
-
-var es = new EventSource('/tail/' + dbname);
-es.addEventListener('transac', function(e) {
-  const t = JSON.parse(e.data);
-  ng(t);
-  render();
-});

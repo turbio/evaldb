@@ -29,12 +29,10 @@ func hasDB(dbid string) bool {
 	return found
 }
 
-type onlog func(t *transac) bool
-
 var logsLock sync.RWMutex
-var logcbs = map[string][]onlog{}
+var logcbs = map[string][]chan *transac{}
 
-func tailDB(dbid string, cb onlog) error {
+func tailDB(dbid string, s chan *transac) error {
 	err := db.View(func(tx *bolt.Tx) error {
 		rdbs := tx.Bucket(dbsBucket)
 		dbb := rdbs.Bucket([]byte(dbid))
@@ -50,11 +48,8 @@ func tailDB(dbid string, cb onlog) error {
 		c := logs.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			var t transac
-			err := json.Unmarshal(v, &t)
-			if err == nil {
-				if !cb(&t) {
-					break
-				}
+			if json.Unmarshal(v, &t) == nil {
+				s <- &t
 			}
 		}
 
@@ -67,12 +62,26 @@ func tailDB(dbid string, cb onlog) error {
 	logsLock.Lock()
 	cbs, ok := logcbs[dbid]
 	if !ok {
-		cbs = []onlog{}
+		cbs = []chan *transac{}
 	}
-	logcbs[dbid] = append(cbs, cb)
+	logcbs[dbid] = append(cbs, s)
 	logsLock.Unlock()
 
 	return nil
+}
+
+func unTailDB(ch chan *transac) {
+	logsLock.Lock()
+	defer logsLock.Unlock()
+
+	for dbid, chs := range logcbs {
+		for j, dbch := range chs {
+			if dbch == ch {
+				logcbs[dbid] = append(chs[:j], chs[j+1:]...)
+				return
+			}
+		}
+	}
 }
 
 func createDB(dbid, lang string) error {
@@ -127,10 +136,8 @@ func logTransac(dbid string, t *transac) error {
 	logsLock.Lock()
 	cbs, ok := logcbs[dbid]
 	if ok {
-		for i, cb := range cbs {
-			if !cb(t) {
-				logcbs[dbid] = append(cbs[:i], cbs[+1:]...)
-			}
+		for _, s := range cbs {
+			s <- t
 		}
 	}
 	logsLock.Unlock()

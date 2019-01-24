@@ -17,6 +17,13 @@
   <script src="/script.js" charset="utf-8"></script>
   <script>
     $('.headbar > input').attr('value', dbname);
+
+    var es = new EventSource('/tail/' + dbname);
+    es.addEventListener('transac', function(e) {
+      const t = JSON.parse(e.data);
+      ng(t);
+      render();
+    });
   </script>
 </body>
 

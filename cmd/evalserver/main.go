@@ -210,22 +210,35 @@ func tail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	f := w.(http.Flusher)
 
-	err := tailDB(target, func(t *transac) bool {
-		data, _ := json.Marshal(t)
-		_, err := w.Write([]byte("event: transac\ndata: " + string(data) + "\n\n"))
+	ch := make(chan *transac)
+
+	go func() {
+		err := tailDB(target, ch)
 		if err != nil {
-			return false
+			w.WriteHeader(http.StatusBadRequest)
 		}
+	}()
 
-		f.Flush()
+	defer unTailDB(ch)
 
-		return true
-	})
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	ctx := r.Context()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case t := <-ch:
+			data, _ := json.Marshal(t)
+			_, err := w.Write([]byte(
+				"event: transac\ndata: " + string(data) + "\n\n",
+			))
+			if err != nil {
+				return
+			}
+
+			f.Flush()
+		}
 	}
-
-	select {}
 }
 
 func eval(w http.ResponseWriter, r *http.Request) {
