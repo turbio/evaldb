@@ -41,6 +41,8 @@ struct gengetopt_args_info
   const char *version_help; /**< @brief Print version and exit help description.  */
   int list_flag;	/**< @brief list all generations (default=off).  */
   const char *list_help; /**< @brief list all generations help description.  */
+  int noaslr_flag;	/**< @brief indicate we're already running without aslr, no need to set (default=off).  */
+  const char *noaslr_help; /**< @brief indicate we're already running without aslr, no need to set help description.  */
   int checkout_arg;	/**< @brief select a specific generation.  */
   char * checkout_orig;	/**< @brief select a specific generation original value given at command line.  */
   const char *checkout_help; /**< @brief select a specific generation help description.  */
@@ -61,6 +63,7 @@ struct gengetopt_args_info
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int list_given ;	/**< @brief Whether list was given.  */
+  unsigned int noaslr_given ;	/**< @brief Whether noaslr was given.  */
   unsigned int checkout_given ;	/**< @brief Whether checkout was given.  */
   unsigned int eval_given ;	/**< @brief Whether eval was given.  */
   unsigned int db_given ;	/**< @brief Whether db was given.  */

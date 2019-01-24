@@ -17,3 +17,8 @@ blocks:
             - go get -v -d -t ./...
             - make
             - make test
+        - name: cppcheck
+          commands:
+            - checkout
+            - install-package cppcheck
+            - make cppcheck

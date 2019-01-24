@@ -25,6 +25,20 @@ all: $(CBINS) $(SERVER)
 test:
 	go test -v ./test
 
+valgrind:
+	echo 0 | sudo tee /proc/sys/kernel/randomize_va_space
+	./test/valgrind-tests
+
+cppcheck:
+	cppcheck \
+		--inconclusive \
+		--std=c99 \
+		--suppress=missingInclude \
+		--enable=all \
+		--error-exitcode=1 \
+		-i cmdline.c \
+		./src
+
 evalserver: ./cmd/evalserver/*
 	go build ./cmd/evalserver
 

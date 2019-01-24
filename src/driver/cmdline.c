@@ -37,6 +37,7 @@ const char *gengetopt_args_info_help[] = {
   "  -h, --help          Print help and exit",
   "  -V, --version       Print version and exit",
   "  -l, --list          list all generations  (default=off)",
+  "  -n, --noaslr        indicate we're already running without aslr, no need to\n                        set  (default=off)",
   "  -c, --checkout=INT  select a specific generation",
   "  -e, --eval=STRING   evaluate the given program and exit",
   "  -d, --db=STRING     snapalloc db to use",
@@ -72,6 +73,7 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->help_given = 0 ;
   args_info->version_given = 0 ;
   args_info->list_given = 0 ;
+  args_info->noaslr_given = 0 ;
   args_info->checkout_given = 0 ;
   args_info->eval_given = 0 ;
   args_info->db_given = 0 ;
@@ -84,6 +86,7 @@ void clear_args (struct gengetopt_args_info *args_info)
 {
   FIX_UNUSED (args_info);
   args_info->list_flag = 0;
+  args_info->noaslr_flag = 0;
   args_info->checkout_orig = NULL;
   args_info->eval_arg = NULL;
   args_info->eval_orig = NULL;
@@ -103,11 +106,12 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->help_help = gengetopt_args_info_help[0] ;
   args_info->version_help = gengetopt_args_info_help[1] ;
   args_info->list_help = gengetopt_args_info_help[2] ;
-  args_info->checkout_help = gengetopt_args_info_help[3] ;
-  args_info->eval_help = gengetopt_args_info_help[4] ;
-  args_info->db_help = gengetopt_args_info_help[5] ;
-  args_info->server_help = gengetopt_args_info_help[6] ;
-  args_info->arg_help = gengetopt_args_info_help[7] ;
+  args_info->noaslr_help = gengetopt_args_info_help[3] ;
+  args_info->checkout_help = gengetopt_args_info_help[4] ;
+  args_info->eval_help = gengetopt_args_info_help[5] ;
+  args_info->db_help = gengetopt_args_info_help[6] ;
+  args_info->server_help = gengetopt_args_info_help[7] ;
+  args_info->arg_help = gengetopt_args_info_help[8] ;
   args_info->arg_min = 0;
   args_info->arg_max = 0;
   
@@ -288,6 +292,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "version", 0, 0 );
   if (args_info->list_given)
     write_into_file(outfile, "list", 0, 0 );
+  if (args_info->noaslr_given)
+    write_into_file(outfile, "noaslr", 0, 0 );
   if (args_info->checkout_given)
     write_into_file(outfile, "checkout", args_info->checkout_orig, 0);
   if (args_info->eval_given)
@@ -852,6 +858,7 @@ cmdline_parser_internal (
         { "help",	0, NULL, 'h' },
         { "version",	0, NULL, 'V' },
         { "list",	0, NULL, 'l' },
+        { "noaslr",	0, NULL, 'n' },
         { "checkout",	1, NULL, 'c' },
         { "eval",	1, NULL, 'e' },
         { "db",	1, NULL, 'd' },
@@ -860,7 +867,7 @@ cmdline_parser_internal (
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVlc:e:d:sa:", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVlnc:e:d:sa:", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -882,6 +889,16 @@ cmdline_parser_internal (
           if (update_arg((void *)&(args_info->list_flag), 0, &(args_info->list_given),
               &(local_args_info.list_given), optarg, 0, 0, ARG_FLAG,
               check_ambiguity, override, 1, 0, "list", 'l',
+              additional_error))
+            goto failure;
+        
+          break;
+        case 'n':	/* indicate we're already running without aslr, no need to set.  */
+        
+        
+          if (update_arg((void *)&(args_info->noaslr_flag), 0, &(args_info->noaslr_given),
+              &(local_args_info.noaslr_given), optarg, 0, 0, ARG_FLAG,
+              check_ambiguity, override, 1, 0, "noaslr", 'n',
               additional_error))
             goto failure;
         

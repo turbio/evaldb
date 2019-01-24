@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
 
   FILE *log = fopen(argv[2], "r");
 
-  struct heap_header *heap = snap_init(argv, argv[1]);
+  struct heap_header *heap = snap_init(argv[1]);
 
   struct tracked_alloc allocs[1000];
   int n = 0;

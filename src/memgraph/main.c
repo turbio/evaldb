@@ -146,9 +146,24 @@ void render_tree(struct heap_header *heap) {
 }
 
 int main(int argc, char *argv[]) {
+  int pers = personality(0xffffffff);
+  if (pers == -1) {
+    fprintf(stderr, "could not get personality %s\n", strerror(errno));
+    exit(1);
+  }
+
+  if (!(pers & ADDR_NO_RANDOMIZE)) {
+    if (personality(ADDR_NO_RANDOMIZE) == -1) {
+      fprintf(stderr, "could not set personality %s\n", strerror(errno));
+      exit(1);
+    }
+
+    execve("/proc/self/exe", argv, NULL);
+  }
+
   cmdline_parser(argc, argv, &args);
 
-  struct heap_header *heap = snap_init(argv, args.db_arg);
+  struct heap_header *heap = snap_init(args.db_arg);
 
   if (heap->v != 0xffca) {
     printf("got a bad heap! %d != %d (expected)", heap->v, 0xffca);

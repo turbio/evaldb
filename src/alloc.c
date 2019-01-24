@@ -10,7 +10,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <sys/personality.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -432,22 +431,7 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   handling_segv = NULL;
 }
 
-struct heap_header *snap_init(char *argv[], char *db_path) {
-  int pers = personality(0xffffffff);
-  if (pers == -1) {
-    fprintf(stderr, "could not get personality %s\n", strerror(errno));
-    exit(1);
-  }
-
-  if (!(pers & ADDR_NO_RANDOMIZE)) {
-    if (personality(ADDR_NO_RANDOMIZE) == -1) {
-      fprintf(stderr, "could not set personality %s\n", strerror(errno));
-      exit(1);
-    }
-
-    execve("/proc/self/exe", argv, NULL);
-  }
-
+struct heap_header *snap_init(char *db_path) {
   void *mem = open_db(db_path, ALLOC_BLOCK_SIZE);
 
   struct heap_header *heap = mem;

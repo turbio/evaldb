@@ -1,8 +1,10 @@
 #include <assert.h>
+#include <errno.h>
 #include <jansson.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/personality.h>
 
 #include "cmdline.h"
 #include "evaler.h"
@@ -162,7 +164,24 @@ int main(int argc, char *argv[]) {
   struct gengetopt_args_info args;
   cmdline_parser(argc, argv, &args);
 
-  struct heap_header *heap = snap_init(argv, args.db_arg);
+  if (!args.noaslr_flag) {
+    int pers = personality(0xffffffff);
+    if (pers == -1) {
+      fprintf(stderr, "could not get personality %s\n", strerror(errno));
+      exit(1);
+    }
+
+    if (!(pers & ADDR_NO_RANDOMIZE)) {
+      if (personality(ADDR_NO_RANDOMIZE) == -1) {
+        fprintf(stderr, "could not set personality %s\n", strerror(errno));
+        exit(1);
+      }
+
+      execve("/proc/self/exe", argv, NULL);
+    }
+  }
+
+  struct heap_header *heap = snap_init(args.db_arg);
 
   if (args.list_flag) {
     list_generations(heap);
