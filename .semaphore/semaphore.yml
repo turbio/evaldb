@@ -6,10 +6,23 @@ agent:
     os_image: ubuntu1804
 
 blocks:
-  - name: "run tests"
+  - name: lint
     task:
       jobs:
-        - name: run tests
+        - name: cppcheck
+          commands:
+            - checkout
+            - install-package cppcheck
+            - make cppcheck
+        - name: clang tidy
+          commands:
+            - install-package libjansson-dev clang-tidy clang
+            - checkout
+            - make clangtidy
+  - name: test
+    task:
+      jobs:
+        - name: unit tests
           commands:
             - checkout
             - install-package libjansson-dev
@@ -17,19 +30,9 @@ blocks:
             - go get -v -d -t ./...
             - make
             - make test
-        - name: cppcheck
-          commands:
-            - checkout
-            - install-package cppcheck
-            - make cppcheck
         - name: valgrind
           commands:
             - checkout
             - install-package valgrind libjansson-dev
             - make luaval
             - make valgrind
-        - name: clang tidy
-          commands:
-            - install-package libjansson-dev clang-tidy clang
-            - checkout
-            - make clangtidy

@@ -21,6 +21,8 @@
 #define generation snap_generation
 #define node snap_node
 
+#define DEBUG_LOGGING
+
 #ifdef DEBUG_LOGGING
 #define SNAP_EVENT_LOG_PRECOMMITED
 #define SNAP_EVENT_LOG_FILE "/dev/stderr"
@@ -44,6 +46,14 @@ void *open_db(const char *path, size_t size) {
   int fd = open(path, O_CREAT | O_RDWR, 0660);
   if (fd == -1) {
     fprintf(stderr, "couldn't open db %s\n", strerror(errno));
+    return NULL;
+  }
+
+  struct heap_header head_data;
+
+  int n = read(fd, &head_data, sizeof(struct heap_header));
+  if (n != sizeof(struct heap_header)) {
+    fprintf(stderr, "unable to read db file, got %d bytes instead\n", n);
     return NULL;
   }
 
@@ -435,6 +445,9 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
 
 struct heap_header *snap_init(char *db_path) {
   void *mem = open_db(db_path, ALLOC_BLOCK_SIZE);
+  if (mem == NULL) {
+    return NULL;
+  }
 
   struct heap_header *heap = mem;
 

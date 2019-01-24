@@ -148,4 +148,6 @@ int main(int argc, char *argv[]) {
 
     index++;
   }
+
+  fclose(log);
 }

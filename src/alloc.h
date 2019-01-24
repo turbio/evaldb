@@ -7,7 +7,7 @@
 #define PAGE_SIZE sysconf(_SC_PAGESIZE)
 
 // TODO(turbio): this needs to be dynamic
-#define INITIAL_PAGES 0x1000
+#define INITIAL_PAGES 0x16
 
 #define ALLOC_BLOCK_SIZE (INITIAL_PAGES * PAGE_SIZE)
 
@@ -20,6 +20,9 @@
 
 struct heap_header {
   uint16_t v;
+
+  uint32_t page_size; // catastrophic things happen if the page size changes
+
   size_t size; // size includes self
 
   void *user_ptr;
