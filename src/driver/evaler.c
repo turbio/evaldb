@@ -182,6 +182,10 @@ int main(int argc, char *argv[]) {
   }
 
   struct heap_header *heap = snap_init(args.db_arg);
+  if (heap == NULL) {
+    fprintf(stderr, "fatal, unable to create heap\n");
+    return 1;
+  }
 
   if (args.list_flag) {
     list_generations(heap);

@@ -6,22 +6,21 @@
 
 #define PAGE_SIZE sysconf(_SC_PAGESIZE)
 
-// TODO(turbio): this needs to be dynamic
-#define INITIAL_PAGES 0x16
+// should be at least two, half will be used for the initial generation
+// and the second half for the intial page.
+#define INITIAL_PAGES 8
 
 #define ALLOC_BLOCK_SIZE (INITIAL_PAGES * PAGE_SIZE)
 
 #define MAP_START_ADDR ((void *)0x600000000000)
 
-// TODO(turbio): this needs to be dynamic
-#define USER_DATA_START_ADDR ((char *)MAP_START_ADDR + (PAGE_SIZE * 8))
-
-#define GENERATION_CHILDREN 0x10
+#define GENERATION_CHILDREN 16
 
 struct heap_header {
   uint16_t v;
 
-  uint32_t page_size; // catastrophic things happen if the page size changes
+  size_t page_size; // catastrophic things happen if the page size changes
+  void *map_start;
 
   size_t size; // size includes self
 

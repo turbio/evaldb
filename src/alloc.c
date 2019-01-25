@@ -1,4 +1,5 @@
 #define _XOPEN_SOURCE 600
+#define _GNU_SOURCE
 
 #include <assert.h>
 #include <errno.h>
@@ -10,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -32,40 +34,44 @@
 FILE *event_log;
 #endif
 
+struct runtime_state {
+  char *db_path;
+  struct heap_header *heap;
+  void *handling_segv;
+};
+
+static struct runtime_state rstate;
+
+#define H (rstate.heap)
+
 void *open_db(const char *path, size_t size) {
-#ifdef SNAP_EVENT_LOG_FILE
-  int logfd = open(SNAP_EVENT_LOG_FILE, O_CREAT | O_RDWR, 0600);
-  if (logfd == -1) {
-    fprintf(stderr, "couldn't open event log %s\n", strerror(errno));
+#ifdef DEBUG_LOGGING
+  fprintf(stderr, "opening db at %s\n", path);
+#endif
+
+  struct stat stat_info;
+
+  int err = stat(path, &stat_info);
+  if (err) {
+    fprintf(stderr, "could not stat db: %s\n", strerror(errno));
     return NULL;
   }
 
-  event_log = fdopen(logfd, "a");
-#endif
+  if ((stat_info.st_mode & S_IFMT) != S_IFREG) {
+    fprintf(stderr, "unexpected file type, wanted regular\n");
+    return NULL;
+  }
 
-  int fd = open(path, O_CREAT | O_RDWR, 0660);
+  int fd = open(path, O_RDWR, 0660);
   if (fd == -1) {
     fprintf(stderr, "couldn't open db %s\n", strerror(errno));
     return NULL;
   }
 
-  struct heap_header head_data;
-
-  int n = read(fd, &head_data, sizeof(struct heap_header));
-  if (n != sizeof(struct heap_header)) {
-    fprintf(stderr, "unable to read db file, got %d bytes instead\n", n);
-    return NULL;
-  }
-
-  int err = ftruncate(fd, size);
-  if (err == -1) {
-    fprintf(stderr, "could not increase db size  %s\n", strerror(errno));
-    return NULL;
-  }
-
+  // we'll initially just map the first page just to grab info
   void *mem = mmap(
       MAP_START_ADDR,
-      size,
+      PAGE_SIZE,
       PROT_READ | PROT_WRITE,
       MAP_FIXED | MAP_SHARED,
       fd,
@@ -75,22 +81,115 @@ void *open_db(const char *path, size_t size) {
     return NULL;
   }
 
+  struct heap_header *heap = (struct heap_header *)mem;
+
+  if (heap->v != 0xffca) {
+    fprintf(
+        stderr,
+        "got a bad snapshot, invalid magic seq 0x%x (expected) != 0x%x "
+        "(actual)\n",
+        0xffca,
+        heap->v);
+    return NULL;
+  }
+
+  if (heap->map_start != MAP_START_ADDR) {
+    assert(0 && "TODO");
+  }
+
+#ifdef DEBUG_LOGGING
+  fprintf(stderr, "page size is %lx\n", PAGE_SIZE);
+  fprintf(stderr, "resizing map from %lx to %lx\n", PAGE_SIZE, heap->size);
+#endif
+
+  void *new_addr = mremap(MAP_START_ADDR, PAGE_SIZE, heap->size, 0);
+  if (new_addr == (void *)-1) {
+    fprintf(stderr, "db remap failed  %s\n", strerror(errno));
+    return NULL;
+  }
+  assert(new_addr == heap->map_start && new_addr == MAP_START_ADDR);
+
   return mem;
 }
 
-/*
-void *round_page_down(void *addr) {
-  return (void *)((uintptr_t)addr & ~(PAGE_SIZE - 1));
+int new_db(const char *path) {
+#ifdef DEBUG_LOGGING
+  fprintf(stderr, "creating db at %s\n", path);
+#endif
+
+  int fd = open(path, O_CREAT | O_RDWR, 0660);
+  if (fd == -1) {
+    fprintf(stderr, "couldn't open db %s\n", strerror(errno));
+    return -1;
+  }
+
+  size_t initial_size = INITIAL_PAGES * PAGE_SIZE;
+  void *map_start = MAP_START_ADDR;
+
+  int err = ftruncate(fd, initial_size);
+  if (err) {
+    fprintf(stderr, "could not increase db size  %s\n", strerror(errno));
+    return -1;
+  }
+
+  // we'll initially just map the first page to figure out the real size
+  void *mem = mmap(
+      map_start,
+      initial_size,
+      PROT_READ | PROT_WRITE,
+      MAP_FIXED | MAP_SHARED,
+      fd,
+      0);
+  if (mem == MAP_FAILED) {
+    fprintf(stderr, "db map failed  %s\n", strerror(errno));
+    return -1;
+  }
+
+  struct heap_header *heap = mem;
+
+  heap->v = 0xffca;
+  heap->size = initial_size;
+  heap->last_gen_index = 0;
+  heap->page_size = PAGE_SIZE;
+  heap->map_start = map_start;
+
+  struct page *initial_page = heap->last_page =
+      (struct page *)((char *)mem + (PAGE_SIZE * (INITIAL_PAGES / 2)));
+
+  *initial_page = (struct page){
+      .i = {.type = SNAP_NODE_PAGE, .committed = 0},
+      .pages = 1,
+      .len = 0,
+      .real_addr = initial_page,
+  };
+
+  struct generation *initial_gen = heap->last_gen =
+      (struct generation *)((char *)heap + sizeof(struct heap_header));
+
+  *initial_gen = (struct generation){
+      .i = {.type = SNAP_NODE_GENERATION, .committed = 0},
+      .gen = heap->last_gen_index,
+      .c = {(struct node *)initial_page},
+  };
+
+  heap->working = initial_gen;
+  heap->committed = NULL;
+  heap->root = initial_gen;
+
+  munmap(heap->map_start, initial_size);
+
+  return 0;
 }
 
-void *round_page_up(void *addr) {
-  if ((uintptr_t)addr & (PAGE_SIZE - 1)) {
-    return round_page_down((char *)addr + PAGE_SIZE);
+uintptr_t round_page_down(uintptr_t addr) { return (addr & ~(PAGE_SIZE - 1)); }
+
+uintptr_t round_page_up(uintptr_t addr) {
+  if (addr & (PAGE_SIZE - 1)) {
+    return round_page_down(addr + PAGE_SIZE);
   }
 
   return addr;
 }
-*/
 
 enum walk_action {
   WALK_CONTINUE = 0,
@@ -202,10 +301,57 @@ int verify_all_committed(struct node *n, void *d) {
   return WALK_CONTINUE;
 }
 
+void expand_heap(struct heap_header *heap, size_t min_expand) {
+  size_t new_size = heap->size * 2;
+
+  if (new_size - heap->size < min_expand * 2) {
+    new_size = round_page_up(min_expand * 2);
+  }
+
+#ifdef DEBUG_LOGGING
+  fprintf(
+      stderr,
+      "resizing map from %lx to %lx to accomadate %lx\n",
+      heap->size,
+      new_size,
+      min_expand);
+#endif
+
+  int err = truncate(rstate.db_path, new_size);
+  if (err) {
+    fprintf(stderr, "could not increase db size  %s\n", strerror(errno));
+    exit(1);
+  }
+
+  void *new_addr = mremap(heap->map_start, heap->size, new_size, 0);
+  if (new_addr == (void *)-1) {
+    fprintf(stderr, "db expand failed  %s\n", strerror(errno));
+    exit(1);
+  }
+  assert(new_addr == heap->map_start);
+
+  heap->size = new_size;
+}
+
 struct page *new_page(struct heap_header *heap, size_t pages) {
   struct page *f = heap->last_page =
       (struct page
            *)((char *)heap->last_page + (heap->last_page->pages * PAGE_SIZE));
+
+  char *npage_end = (char *)f + (pages * PAGE_SIZE);
+  char *heap_end = (char *)heap->map_start + heap->size;
+
+  if (npage_end >= heap_end) {
+    expand_heap(heap, pages * PAGE_SIZE);
+  }
+
+  assert(npage_end < (char *)heap->map_start + heap->size);
+
+  // FILE *maps = fopen("/proc/self/maps", "r");
+  // char buff[100000];
+  // while (fgets(buff, 100000, maps)) {
+  //   fprintf(stderr, "%s", buff);
+  // }
 
   *f = (struct page){
       .i = {.type = SNAP_NODE_PAGE, .committed = 0},
@@ -339,31 +485,27 @@ new_gen_between(struct heap_header *heap, struct generation *parent) {
   return child;
 }
 
-static struct heap_header *segv_handle_heap;
-static void *handling_segv = NULL;
 void handle_segv(int signum, siginfo_t *i, void *d) {
   void *addr = i->si_addr;
 
-  if (handling_segv) {
+  if (rstate.handling_segv) {
     fprintf(
         stderr,
         "SEGFAULT at %p while already handling SEGV for %p\n",
         addr,
-        handling_segv);
+        rstate.handling_segv);
     exit(2);
   }
 
-  handling_segv = addr;
+  rstate.handling_segv = addr;
 
-  struct heap_header *heap = segv_handle_heap;
-
-  if (addr < MAP_START_ADDR ||
-      (char *)MAP_START_ADDR >= (char *)MAP_START_ADDR + ALLOC_BLOCK_SIZE) {
+  if (addr < H->map_start ||
+      (char *)H->map_start >= (char *)H->map_start + H->size) {
     fprintf(stderr, "SEGFAULT trying to read %p\n", addr);
     exit(2);
   }
 
-  if (segv_handle_heap->committed == segv_handle_heap->working) {
+  if (H->committed == H->working) {
     fprintf(stderr, "SEGFAULT write outside of mutation %p\n", addr);
     exit(2);
   }
@@ -372,10 +514,10 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   fprintf(stderr, "! hit %p\n", addr);
 #endif
 
-  assert(heap->working != heap->committed);
+  assert(H->working != H->committed);
 
   struct page_from_hit phit = {.hit = addr, .p = NULL, .index = -1};
-  walk_nodes((struct node *)heap->root, find_page, (void *)&phit);
+  walk_nodes((struct node *)H->root, find_page, (void *)&phit);
 
 #ifdef DEBUG_LOGGING
   fprintf(stderr, "! turns out the page is %p\n", (void *)phit.p);
@@ -401,25 +543,25 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
       .index = -1,
       .child = (struct node *)hit_page,
   };
-  walk_nodes((struct node *)heap->root, find_parent, &rel);
+  walk_nodes((struct node *)H->root, find_parent, &rel);
   assert(rel.parent != NULL);
   assert(rel.index != -1);
   assert(rel.parent->type == SNAP_NODE_GENERATION);
 
-  struct page *fresh_page = page_copy(heap, hit_page);
+  struct page *fresh_page = page_copy(H, hit_page);
 
   struct tree_slot slot = {.index = -1, .target = NULL};
-  walk_nodes((struct node *)heap->working, first_free_slot, &slot);
+  walk_nodes((struct node *)H->working, first_free_slot, &slot);
 
   if (slot.target == NULL) {
 #ifdef DEBUG_LOGGING
     fprintf(stderr, "did one of those fancy moves\n");
 #endif
 
-    new_gen_between(heap, heap->working);
+    new_gen_between(H, H->working);
 
     slot = (struct tree_slot){.index = -1, .target = NULL};
-    walk_nodes((struct node *)heap->working, first_free_slot, &slot);
+    walk_nodes((struct node *)H->working, first_free_slot, &slot);
   }
 
   assert(slot.target != NULL);
@@ -440,57 +582,40 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
       (void *)fresh_page);
 #endif
 
-  handling_segv = NULL;
+  rstate.handling_segv = NULL;
 }
 
-struct heap_header *snap_init(char *db_path) {
-  void *mem = open_db(db_path, ALLOC_BLOCK_SIZE);
+struct heap_header *snap_init(char *path) {
+#ifdef SNAP_EVENT_LOG_FILE
+  int logfd = open(SNAP_EVENT_LOG_FILE, O_CREAT | O_RDWR, 0600);
+  if (logfd == -1) {
+    fprintf(stderr, "couldn't open event log %s\n", strerror(errno));
+    return NULL;
+  }
+
+  event_log = fdopen(logfd, "a");
+#endif
+
+  rstate.db_path = path;
+
+  struct stat stat_info;
+
+  int err = stat(path, &stat_info);
+  if (err && errno == ENOENT) {
+    if (new_db(path)) {
+      fprintf(stderr, "couldn't creat initial db\n");
+      return NULL;
+    }
+  }
+
+  void *mem = open_db(path, ALLOC_BLOCK_SIZE);
   if (mem == NULL) {
     return NULL;
   }
 
-  struct heap_header *heap = mem;
+  rstate.heap = mem;
 
-  if (heap->v == 0) {
-    heap->v = 0xffca;
-    heap->size = ALLOC_BLOCK_SIZE;
-    heap->last_gen_index = 0;
-
-    struct page *initial_page = heap->last_page =
-        (struct page *)USER_DATA_START_ADDR;
-
-    *initial_page = (struct page){
-        .i = {.type = SNAP_NODE_PAGE, .committed = 0},
-        .pages = 1,
-        .len = 0,
-        .real_addr = initial_page,
-    };
-
-    struct generation *initial_gen = heap->last_gen =
-        (struct generation *)((char *)heap + sizeof(struct heap_header));
-
-    *initial_gen = (struct generation){
-        .i = {.type = SNAP_NODE_GENERATION, .committed = 0},
-        .gen = heap->last_gen_index,
-        .c = {(struct node *)initial_page},
-    };
-
-    heap->working = initial_gen;
-    heap->committed = NULL;
-    heap->root = initial_gen;
-
-  } else if (heap->v != 0xffca) {
-    fprintf(
-        stderr,
-        "got a bad snapshot, %d (expected) != %d (actual)",
-        0xffca,
-        heap->v);
-    exit(1);
-  }
-
-  walk_nodes((struct node *)heap->root, set_readonly, NULL);
-
-  segv_handle_heap = heap;
+  walk_nodes((struct node *)H->root, set_readonly, NULL);
 
   static struct sigaction segv_action;
 
@@ -498,7 +623,7 @@ struct heap_header *snap_init(char *db_path) {
   segv_action.sa_sigaction = handle_segv;
   sigaction(SIGSEGV, &segv_action, NULL);
 
-  return heap;
+  return rstate.heap;
 }
 
 int snap_commit(struct heap_header *heap) {
