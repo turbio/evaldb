@@ -16,6 +16,8 @@
 
 #define GENERATION_CHILDREN 16
 
+#define MAX_MAPS 65530
+
 struct heap_header {
   uint16_t v;
 

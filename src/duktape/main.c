@@ -64,8 +64,6 @@ json_t *do_eval(
   strcat(wrapped, code);
   strcat(wrapped, end);
 
-  fprintf(stderr, "yoy %s", wrapped);
-
   duk_context *ctx = heap->user_ptr;
 
   duk_require_stack(ctx, 1);

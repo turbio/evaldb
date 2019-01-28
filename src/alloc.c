@@ -23,16 +23,22 @@
 #define generation snap_generation
 #define node snap_node
 
-#define DEBUG_LOGGING
-
 #ifdef DEBUG_LOGGING
 #define SNAP_EVENT_LOG_PRECOMMITED
 #define SNAP_EVENT_LOG_FILE "/dev/stderr"
 #endif
 
+#define DEBUG_LOGGING
+
 #ifdef SNAP_EVENT_LOG_FILE
 FILE *event_log;
 #endif
+
+struct mapping {
+  char w;
+  void *start;
+  size_t len;
+};
 
 struct runtime_state {
   char *db_path;
@@ -44,28 +50,32 @@ static struct runtime_state rstate;
 
 #define H (rstate.heap)
 
-void *open_db(const char *path, size_t size) {
 #ifdef DEBUG_LOGGING
-  fprintf(stderr, "opening db at %s\n", path);
+#define LOG(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define LOG(...)
 #endif
+
+int open_db(const char *path, struct runtime_state *state) {
+  LOG("opening db at %s\n", path);
 
   struct stat stat_info;
 
   int err = stat(path, &stat_info);
   if (err) {
     fprintf(stderr, "could not stat db: %s\n", strerror(errno));
-    return NULL;
+    return -1;
   }
 
   if ((stat_info.st_mode & S_IFMT) != S_IFREG) {
     fprintf(stderr, "unexpected file type, wanted regular\n");
-    return NULL;
+    return -1;
   }
 
   int fd = open(path, O_RDWR, 0660);
   if (fd == -1) {
     fprintf(stderr, "couldn't open db %s\n", strerror(errno));
-    return NULL;
+    return -1;
   }
 
   // we'll initially just map the first page just to grab info
@@ -78,7 +88,7 @@ void *open_db(const char *path, size_t size) {
       0);
   if (mem == MAP_FAILED) {
     fprintf(stderr, "db map failed  %s\n", strerror(errno));
-    return NULL;
+    return -1;
   }
 
   struct heap_header *heap = (struct heap_header *)mem;
@@ -90,32 +100,29 @@ void *open_db(const char *path, size_t size) {
         "(actual)\n",
         0xffca,
         heap->v);
-    return NULL;
+    return -1;
   }
 
   if (heap->map_start != MAP_START_ADDR) {
     assert(0 && "TODO");
   }
 
-#ifdef DEBUG_LOGGING
-  fprintf(stderr, "page size is %lx\n", PAGE_SIZE);
-  fprintf(stderr, "resizing map from %lx to %lx\n", PAGE_SIZE, heap->size);
-#endif
+  LOG("resizing initial map from %lx to %lx\n", PAGE_SIZE, heap->size);
 
   void *new_addr = mremap(MAP_START_ADDR, PAGE_SIZE, heap->size, 0);
   if (new_addr == (void *)-1) {
     fprintf(stderr, "db remap failed  %s\n", strerror(errno));
-    return NULL;
+    return -1;
   }
   assert(new_addr == heap->map_start && new_addr == MAP_START_ADDR);
 
-  return mem;
+  state->heap = mem;
+
+  return 0;
 }
 
 int new_db(const char *path) {
-#ifdef DEBUG_LOGGING
-  fprintf(stderr, "creating db at %s\n", path);
-#endif
+  LOG("creating db at %s\n", path);
 
   int fd = open(path, O_CREAT | O_RDWR, 0660);
   if (fd == -1) {
@@ -308,24 +315,26 @@ void expand_heap(struct heap_header *heap, size_t min_expand) {
     new_size = round_page_up(min_expand * 2);
   }
 
-#ifdef DEBUG_LOGGING
-  fprintf(
-      stderr,
-      "resizing map from %lx to %lx to accomadate %lx\n",
-      heap->size,
-      new_size,
-      min_expand);
-#endif
-
   int err = truncate(rstate.db_path, new_size);
   if (err) {
-    fprintf(stderr, "could not increase db size  %s\n", strerror(errno));
+    fprintf(stderr, "could not increase db file size %s\n", strerror(errno));
     exit(1);
   }
 
+  size_t expand_by = new_size - heap->size;
+
+  LOG("resizing map from %lx to %lx (+%lx) to accomadate %lx\n",
+      heap->size,
+      new_size,
+      expand_by,
+      min_expand);
+
+  // fprintf(stderr, "taking last map %p from %lx to %lx\n", start, old_len,
+  // new_len);
+
   void *new_addr = mremap(heap->map_start, heap->size, new_size, 0);
   if (new_addr == (void *)-1) {
-    fprintf(stderr, "db expand failed  %s\n", strerror(errno));
+    fprintf(stderr, "db expand failed %s\n", strerror(errno));
     exit(1);
   }
   assert(new_addr == heap->map_start);
@@ -347,12 +356,6 @@ struct page *new_page(struct heap_header *heap, size_t pages) {
 
   assert(npage_end < (char *)heap->map_start + heap->size);
 
-  // FILE *maps = fopen("/proc/self/maps", "r");
-  // char buff[100000];
-  // while (fgets(buff, 100000, maps)) {
-  //   fprintf(stderr, "%s", buff);
-  // }
-
   *f = (struct page){
       .i = {.type = SNAP_NODE_PAGE, .committed = 0},
       .pages = pages,
@@ -361,33 +364,6 @@ struct page *new_page(struct heap_header *heap, size_t pages) {
   };
 
   return f;
-}
-
-int set_readonly(struct node *n, void *d) {
-  if (n->type != SNAP_NODE_PAGE || !n->committed) {
-    return WALK_CONTINUE;
-  }
-
-  struct page *p = (struct page *)n;
-
-  if (p->real_addr != p) {
-    return WALK_CONTINUE;
-  }
-
-  // fprintf(stderr, "setting RONLY on %p\n", (void *)n);
-
-  int err = mprotect((void *)p, PAGE_SIZE * p->pages, PROT_READ);
-  if (err != 0) {
-    fprintf(stderr, "failed to unmark write pages %s\n", strerror(errno));
-    fprintf(
-        stderr,
-        "%p - %p",
-        (void *)p,
-        (void *)((char *)p + (PAGE_SIZE * p->pages)));
-    exit(3);
-  }
-
-  return WALK_CONTINUE;
 }
 
 int set_committed(struct node *n, void *d) {
@@ -416,9 +392,7 @@ struct page *page_copy(struct heap_header *h, struct page *p) {
 void page_swap(struct heap_header *heap, struct page *p1, struct page *p2) {
   assert(p1->pages == p2->pages);
 
-#ifdef DEBUG_LOGGING
-  fprintf(stderr, "swapping pages %p <-> %p\n", (void *)p1, (void *)p2);
-#endif
+  LOG("swapping pages %p <-> %p\n", (void *)p1, (void *)p2);
 
   int err = mprotect((void *)p1, PAGE_SIZE * p1->pages, PROT_READ | PROT_WRITE);
   if (err != 0) {
@@ -510,18 +484,14 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
     exit(2);
   }
 
-#ifdef DEBUG_LOGGING
-  fprintf(stderr, "! hit %p\n", addr);
-#endif
+  LOG("! hit %p\n", addr);
 
   assert(H->working != H->committed);
 
   struct page_from_hit phit = {.hit = addr, .p = NULL, .index = -1};
   walk_nodes((struct node *)H->root, find_page, (void *)&phit);
 
-#ifdef DEBUG_LOGGING
-  fprintf(stderr, "! turns out the page is %p\n", (void *)phit.p);
-#endif
+  LOG("! turns out the page is %p\n", (void *)phit.p);
 
   assert(phit.p != NULL);
   assert(phit.index != -1);
@@ -554,9 +524,7 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   walk_nodes((struct node *)H->working, first_free_slot, &slot);
 
   if (slot.target == NULL) {
-#ifdef DEBUG_LOGGING
-    fprintf(stderr, "did one of those fancy moves\n");
-#endif
+    LOG("did one of those fancy moves\n");
 
     new_gen_between(H, H->working);
 
@@ -573,14 +541,10 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   hit_page->i.committed = 0;
   slot.target->c[slot.index] = (struct node *)hit_page;
 
-#ifdef DEBUG_LOGGING
-  fprintf(
-      stderr,
-      "! duplicated %p-%p to %p\n",
+  LOG("! duplicated %p-%p to %p\n",
       (void *)hit_page,
       (char *)hit_page + PAGE_SIZE - 1,
       (void *)fresh_page);
-#endif
 
   rstate.handling_segv = NULL;
 }
@@ -608,14 +572,10 @@ struct heap_header *snap_init(char *path) {
     }
   }
 
-  void *mem = open_db(path, ALLOC_BLOCK_SIZE);
-  if (mem == NULL) {
+  int notok = open_db(path, &rstate);
+  if (notok) {
     return NULL;
   }
-
-  rstate.heap = mem;
-
-  walk_nodes((struct node *)H->root, set_readonly, NULL);
 
   static struct sigaction segv_action;
 
@@ -632,30 +592,21 @@ int snap_commit(struct heap_header *heap) {
   fflush(event_log);
 #endif
 
-#ifdef DEBUG_LOGGING
-  fprintf(stderr, "BEGINNING COMMIT\n");
-#endif
+  LOG("BEGINNING COMMIT\n");
 
   int flagged = 0;
   walk_nodes((struct node *)heap->working, set_committed, &flagged);
-  walk_nodes((struct node *)heap->working, set_readonly, NULL);
 
-#ifdef DEBUG_LOGGING
-  fprintf(stderr, "committed %d nodes\n", flagged);
-  fprintf(stderr, "SETTING READONLY\n");
-#endif
+  LOG("committed %d nodes\n", flagged);
+  LOG("SETTING READONLY\n");
 
   walk_nodes((struct node *)heap->root, verify_all_committed, NULL);
 
-#ifdef DEBUG_LOGGING
-  fprintf(stderr, "UPDATING COMMIT BIT\n");
-#endif
+  LOG("UPDATING COMMIT BIT\n");
 
   heap->committed = heap->working;
 
-#ifdef DEBUG_LOGGING
-  fprintf(stderr, "COMMIT COMPLETE\n");
-#endif
+  LOG("COMMIT COMPLETE\n");
 
   return heap->committed->gen;
 }
@@ -717,9 +668,7 @@ int first_gen_for_id(struct node *n, void *d) {
 
 void snap_checkout(struct heap_header *heap, int genid) {
 
-#ifdef DEBUG_LOGGING
-  fprintf(stderr, "BEGINNING CHECKOUT\n");
-#endif
+  LOG("BEGINNING CHECKOUT\n");
 
   assert(heap->committed == heap->working);
 
@@ -729,9 +678,7 @@ void snap_checkout(struct heap_header *heap, int genid) {
   assert(fid.g->gen == genid);
 
   if (heap->committed->gen == genid) {
-#ifdef DEBUG_LOGGING
-    fprintf(stderr, "CHECKOUT DONE\n");
-#endif
+    LOG("CHECKOUT DONE\n");
     return;
   }
 
@@ -751,9 +698,7 @@ void snap_checkout(struct heap_header *heap, int genid) {
   };
   walk_nodes((struct node *)heap->root, pages_up_to_gen, &s);
 
-#ifdef DEBUG_LOGGING
-  fprintf(stderr, "swapping %d pages\n", s.count);
-#endif
+  LOG("swapping %d pages\n", s.count);
 
   for (int i = 0; i < s.count; i++) {
     if (s.p[i] != s.p[i]->real_addr) {
@@ -788,9 +733,7 @@ void snap_checkout(struct heap_header *heap, int genid) {
   heap->committed = fid.g;
   heap->working = fid.g;
 
-#ifdef DEBUG_LOGGING
-  fprintf(stderr, "COMPLETED CHECKOUT\n");
-#endif
+  LOG("COMPLETED CHECKOUT\n");
 }
 
 int snap_begin_mut(struct heap_header *heap) {
@@ -799,20 +742,14 @@ int snap_begin_mut(struct heap_header *heap) {
   fflush(event_log);
 #endif
 
-#ifdef DEBUG_LOGGING
-  fprintf(stderr, "BEGINNING MUT\n");
-#endif
+  LOG("BEGINNING MUT\n");
 
   assert(heap->working == heap->committed);
   walk_nodes((struct node *)heap->root, verify_all_committed, NULL);
 
-#ifdef DEBUG_LOGGING
-  fprintf(
-      stderr,
-      "rev: %d, generation at: %p\n",
+  LOG("rev: %d, generation at: %p\n",
       heap->working->gen,
       (void *)heap->working);
-#endif
 
   struct tree_slot slot = {.index = -1, .target = NULL};
   walk_nodes((struct node *)heap->committed, first_free_slot, &slot);
@@ -831,12 +768,12 @@ int snap_begin_mut(struct heap_header *heap) {
   slot.target->c[slot.index] = (struct node *)next;
   heap->working = next;
 
-#ifdef DEBUG_LOGGING
-  fprintf(stderr, "working now: %d\n", heap->working->gen);
-#endif
+  LOG("working now: %d\n", heap->working->gen);
 
   assert(heap->working != heap->committed);
   assert(heap->committed->gen != heap->working->gen);
+
+  walk_nodes((struct node *)heap->committed, set_readonly, NULL);
 
   return heap->working->gen;
 }

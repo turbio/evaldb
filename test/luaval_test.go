@@ -12,7 +12,7 @@ import (
 func TestLuavalOnePlusOne(t *testing.T) {
 	db, err := ioutil.TempFile("", "luaval_one_plus_one")
 	assert.NoError(t, err)
-	defer os.Remove(db.Name())
+	os.Remove(db.Name())
 
 	cmd := exec.Command("./luaval", "-d", db.Name(), "-e", "return 1 + 1")
 	cmd.Dir = "../"
@@ -25,7 +25,7 @@ func TestLuavalOnePlusOne(t *testing.T) {
 func TestLuavalSetGet(t *testing.T) {
 	db, err := ioutil.TempFile("", "luaval_set_get")
 	assert.NoError(t, err)
-	defer os.Remove(db.Name())
+	os.Remove(db.Name())
 
 	cmd := exec.Command("./luaval", "-d", db.Name(), "-e", "v = 12345")
 	cmd.Dir = "../"
@@ -45,7 +45,7 @@ func TestLuavalSetGet(t *testing.T) {
 func TestLuavalAddArgs(t *testing.T) {
 	db, err := ioutil.TempFile("", "luaval_add_args")
 	assert.NoError(t, err)
-	defer os.Remove(db.Name())
+	os.Remove(db.Name())
 
 	cmd := exec.Command(
 		"./luaval",
@@ -64,7 +64,7 @@ func TestLuavalAddArgs(t *testing.T) {
 func TestLuavalMarshal(t *testing.T) {
 	db, err := ioutil.TempFile("", "luaval_marshal")
 	assert.NoError(t, err)
-	defer os.Remove(db.Name())
+	os.Remove(db.Name())
 
 	cmd := exec.Command(
 		"./luaval",
@@ -88,7 +88,7 @@ func TestLuavalMarshal(t *testing.T) {
 func TestLuavalCheckout(t *testing.T) {
 	db, err := ioutil.TempFile("", "luaval_checkout")
 	assert.NoError(t, err)
-	defer os.Remove(db.Name())
+	os.Remove(db.Name())
 
 	cmd := exec.Command("./luaval", "-d", db.Name(), "-e", "v = 54321")
 	cmd.Dir = "../"
@@ -117,7 +117,7 @@ func TestLuavalCheckout(t *testing.T) {
 func TestLuaTableCheckout(t *testing.T) {
 	db, err := ioutil.TempFile("", "luaval_table_checkout")
 	assert.NoError(t, err)
-	defer os.Remove(db.Name())
+	os.Remove(db.Name())
 
 	cmd := exec.Command("./luaval", "-d", db.Name())
 	cmd.Dir = "../"

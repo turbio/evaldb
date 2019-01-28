@@ -12,7 +12,7 @@ import (
 func TestDuktapeOnePlusOne(t *testing.T) {
 	db, err := ioutil.TempFile("", "duktape_one_plus_one")
 	assert.NoError(t, err)
-	defer os.Remove(db.Name())
+	os.Remove(db.Name())
 
 	cmd := exec.Command("./duktape", "-d", db.Name(), "-e", "return 1 + 1")
 	cmd.Dir = "../"
@@ -25,7 +25,7 @@ func TestDuktapeOnePlusOne(t *testing.T) {
 func TestDuktapeSetGet(t *testing.T) {
 	db, err := ioutil.TempFile("", "duktape_set_get")
 	assert.NoError(t, err)
-	defer os.Remove(db.Name())
+	os.Remove(db.Name())
 
 	cmd := exec.Command("./duktape", "-d", db.Name(), "-e", "v = 12345")
 	cmd.Dir = "../"
@@ -45,7 +45,7 @@ func TestDuktapeSetGet(t *testing.T) {
 func TestDuktapeAddArgs(t *testing.T) {
 	db, err := ioutil.TempFile("", "duktape_add_args")
 	assert.NoError(t, err)
-	defer os.Remove(db.Name())
+	os.Remove(db.Name())
 
 	cmd := exec.Command(
 		"./duktape",
@@ -64,7 +64,7 @@ func TestDuktapeAddArgs(t *testing.T) {
 func TestDuktapeMarshal(t *testing.T) {
 	db, err := ioutil.TempFile("", "duktape_marshal")
 	assert.NoError(t, err)
-	defer os.Remove(db.Name())
+	os.Remove(db.Name())
 
 	cmd := exec.Command(
 		"./duktape",
@@ -88,7 +88,7 @@ func TestDuktapeMarshal(t *testing.T) {
 func TestDuktapeCheckout(t *testing.T) {
 	db, err := ioutil.TempFile("", "duktape_checkout")
 	assert.NoError(t, err)
-	defer os.Remove(db.Name())
+	os.Remove(db.Name())
 
 	cmd := exec.Command("./duktape", "-d", db.Name(), "-e", "v = 54321")
 	cmd.Dir = "../"
