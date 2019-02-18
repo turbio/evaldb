@@ -212,8 +212,6 @@ int main(int argc, char *argv[]) {
 #ifdef DEBUG_LOGGING
     fprintf(stderr, "CREATED INITIAL STATE\n");
 #endif
-  } else {
-    assert(heap->user_ptr != NULL);
   }
 
   if (args.eval_given) {

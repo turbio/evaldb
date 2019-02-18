@@ -60,7 +60,11 @@ int main(int argc, char *argv[]) {
       fprintf(stderr, "     receiv: %s(%ld) -> %p\n", buff, size, (void *)ptr);
 
       if (expected_addr != ptr) {
-        fprintf(stderr, "bad result: %p != %p\n", ptr, expected_addr);
+        fprintf(
+            stderr,
+            "bad result: %p != %p\n",
+            (void *)ptr,
+            (void *)expected_addr);
       }
 
       assert(expected_addr == ptr);
@@ -136,10 +140,10 @@ int main(int argc, char *argv[]) {
           fprintf(
               stderr,
               "section %p - %p (%d)\n",
-              (char *)a.ptr,
-              (char *)a.ptr + a.size,
+              (void *)a.ptr,
+              (void *)((char *)a.ptr + a.size),
               a.size);
-          fprintf(stderr, "at %p\n", (char *)a.ptr + j);
+          fprintf(stderr, "at %p\n", (void *)((char *)a.ptr + j));
           fprintf(stderr, "used check failed %d != %d", a.ptr[j], used_ch);
           exit(1);
         }

@@ -8,11 +8,11 @@
 
 // should be at least two, half will be used for the initial generation
 // and the second half for the intial page.
-#define INITIAL_PAGES 8
+#define INITIAL_PAGES 16
 
 #define ALLOC_BLOCK_SIZE (INITIAL_PAGES * PAGE_SIZE)
 
-#define MAP_START_ADDR ((void *)0x600000000000)
+#define MAP_START_ADDR ((void *)0x100000000000)
 
 #define GENERATION_CHILDREN 16
 
