@@ -37,16 +37,6 @@ FILE *event_log;
 
 void full_verify(int committed);
 
-void print_linux_maps() {
-  FILE *f = fopen("/proc/self/maps", "r");
-  int c = 0;
-  fprintf(stderr, "\n");
-  while ((c = fgetc(f)) != EOF) {
-    fprintf(stderr, "%c", c);
-  }
-  fprintf(stderr, "\n");
-}
-
 struct map {
   char w;
   void *start;
@@ -87,11 +77,11 @@ uintptr_t round_page_up(uintptr_t addr) {
 }
 
 void print_map(struct map m) {
+  LOG("\t%p-%p r", m.start, (void *)((char *)m.start + m.len));
   if (m.w) {
-    LOG("\t%p-%p rw\n", m.start, (void *)((char *)m.start + m.len));
-  } else {
-    LOG("\t%p-%p r\n", m.start, (void *)((char *)m.start + m.len));
+    LOG("w");
   }
+  LOG("\n");
 }
 
 void print_table(struct table *pm) {
@@ -118,7 +108,7 @@ void insert_map(struct table *pm, struct map m, size_t index) {
 }
 
 void remove_map(struct table *pm, size_t index) {
-  assert(index >= 0);
+  assert(index != ~0);
   assert(index < pm->len);
 
   for (size_t i = index; i < pm->len; i++) {
@@ -127,11 +117,6 @@ void remove_map(struct table *pm, size_t index) {
 
   pm->len--;
   pm->m[pm->len] = (struct map){0};
-}
-
-int inside(struct map outer, struct map inner) {
-  return inner.start > outer.start &&
-         (char *)inner.start + inner.len < (char *)outer.start + outer.len;
 }
 
 void overlaps(struct map m, struct table *t, struct table *hits) {
@@ -985,7 +970,7 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
   rstate.handling_segv = NULL;
 }
 
-struct heap_header *snap_init(char *path) {
+struct heap_header *snap_init(char *db_path) {
 #ifdef SNAP_EVENT_LOG_FILE
   int logfd = open(SNAP_EVENT_LOG_FILE, O_CREAT | O_RDWR, 0600);
   if (logfd == -1) {
@@ -996,15 +981,15 @@ struct heap_header *snap_init(char *path) {
   event_log = fdopen(logfd, "a");
 #endif
 
-  rstate.db_path = path;
+  rstate.db_path = db_path;
 
   struct stat stat_info;
 
   int created = 0;
 
-  int err = stat(path, &stat_info);
+  int err = stat(db_path, &stat_info);
   if (err && errno == ENOENT) {
-    if (new_db(path)) {
+    if (new_db(db_path)) {
       fprintf(stderr, "couldn't creat initial db\n");
       return NULL;
     }
@@ -1012,7 +997,7 @@ struct heap_header *snap_init(char *path) {
     created = 1;
   }
 
-  int notok = open_db(path, &rstate);
+  int notok = open_db(db_path, &rstate);
   if (notok) {
     return NULL;
   }
