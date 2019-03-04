@@ -16,11 +16,10 @@ SRCS       := $(shell find $(SRCDIR) -type f -name "*.c")
 OBJS       := $(patsubst %.c,%.o,$(SRCS))
 
 CBINS      := luaval duktape memtest memgraph
-SERVER     := evalserver
 
 .PHONY: all clean test
 
-all: $(CBINS) $(SERVER)
+all: $(CBINS) gateway
 
 test:
 	go test -v ./test
@@ -45,8 +44,8 @@ cppcheck:
 clangtidy:
 	clang-tidy ./src/*.c ./src/*/*.c
 
-evalserver: ./cmd/evalserver/*
-	go build ./cmd/evalserver
+gateway: ./cmd/gateway/*
+	go build ./cmd/gateway
 
 gengetopt:
 	(cd src/driver && gengetopt < getopt)
