@@ -1,3 +1,3 @@
-#undef LOG_MAP_MODS
-#undef DEBUG_LOGGING
+#define LOG_MAP_MODS
+#define DEBUG_LOGGING
 #define FULL_VERIFY

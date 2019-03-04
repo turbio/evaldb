@@ -76,5 +76,5 @@ src/luaval/main.o: src/luaval/main.c
 memtest: src/alloc.o src/memtest/main.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
-%.o: %.c %.h
+%.o: %.c %.h src/config.h
 	$(CC) $(CFLAGS) -o $@ -c $<

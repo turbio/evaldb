@@ -213,10 +213,26 @@ void merge_in_map(struct map newmap) {
   assert(hits.len != 0);
 
 #ifdef LOG_MAP_MODS
-  LOG("\tfound %lu overlaps:\n", hits.len);
+  LOG("\tfound %lu overlaps:\n", (unsigned long)hits.len);
   print_table(&hits);
   LOG("\t");
 #endif
+
+  while (hits.len > 2 || (hits.len == 2 && hits.m[0].w == hits.m[1].w)) {
+    struct map sec = hits.m[1];
+
+    struct map *abefore = find_map_before(&rstate.active_map, sec);
+    assert(abefore);
+
+    struct map *hbefore = find_map_before(&hits, sec);
+    assert(hbefore);
+
+    remove_map(&hits, map_index(&hits, sec));
+    remove_map(&rstate.active_map, map_index(&rstate.active_map, sec));
+
+    abefore->len += sec.len;
+    hbefore->len += sec.len;
+  }
 
   if (hits.len == 1) {
     struct map hit = hits.m[0];
@@ -264,7 +280,7 @@ void merge_in_map(struct map newmap) {
       } else if (mafter) {
         assert(0 && "oh no");
       } else {
-        assert(0 && "WAT!?");
+        assert(0);
       }
 
     } else if (hit.start == newmap.start) {
@@ -363,15 +379,66 @@ void merge_in_map(struct map newmap) {
         exit(3);
       }
     }
+  } else if (hits.len == 2) {
+    struct map hl = hits.m[0];
+    struct map hr = hits.m[1];
+
+    struct map *lptr = find_map(&rstate.active_map, hl);
+    assert(lptr);
+
+    struct map *rptr = find_map(&rstate.active_map, hr);
+    assert(rptr);
+
+    if (newmap.w == hl.w) {
+      LOG("expanding left\n");
+      size_t ldiff =
+          ((char *)newmap.start + newmap.len) - ((char *)hl.start + hl.len);
+
+      lptr->len += ldiff;
+
+      rptr->start = (char *)rptr->start + ldiff;
+      rptr->len -= ldiff;
+
+      if (rptr->len == 0) {
+        // the map probably aligned with the right side, we'll end up killing
+        // two maps
+
+        size_t emptyi = map_index(&rstate.active_map, *rptr);
+        remove_map(&rstate.active_map, emptyi);
+
+        lptr->len += rstate.active_map.m[emptyi].len;
+
+        remove_map(&rstate.active_map, emptyi);
+      }
+    } else if (newmap.w == hr.w) {
+      LOG("expanding right\n");
+
+      size_t rdiff = (char *)hr.start - (char *)newmap.start;
+
+      lptr->len -= rdiff;
+
+      assert(lptr->len != 0);
+
+      rptr->start = (char *)rptr->start - rdiff;
+      rptr->len += rdiff;
+    }
+
+    int err = mprotect(newmap.start, newmap.len, w_to_prot(newmap.w));
+    if (err != 0) {
+      fprintf(stderr, "failed to mark write pages %s\n", strerror(errno));
+      exit(3);
+    }
   } else {
-    assert(0 && "oh no");
+    assert(0 && "hits should have been culled to 1 or 2");
   }
 
-  full_verify(-1);
-
 #ifdef LOG_MAP_MODS
+  LOG("resulting map:\n");
+  print_table(&rstate.active_map);
   LOG("\n");
 #endif
+
+  full_verify(-1);
 }
 
 void merge_in_table(struct table newmaps) {
@@ -419,8 +486,6 @@ void merge_in_table(struct table newmaps) {
   }
 
 #ifdef LOG_MAP_MODS
-  LOG("resulting map:\n");
-  print_table(&rstate.active_map);
   LOG("<<<<<<\n");
 #endif
 }
@@ -717,10 +782,10 @@ void expand_heap(struct heap_header *heap, size_t min_expand) {
   size_t expand_by = new_size - heap->size;
 
   LOG("resizing map from %lx to %lx (+%lx) to accommodate %lx\n",
-      heap->size,
-      new_size,
-      expand_by,
-      min_expand);
+      (unsigned long)heap->size,
+      (unsigned long)new_size,
+      (unsigned long)expand_by,
+      (unsigned long)min_expand);
 
   struct map lastmap = rstate.active_map.m[rstate.active_map.len - 1];
 
@@ -1484,6 +1549,21 @@ void full_verify(int committed) {
 
   for (size_t i = 1; i < rstate.active_map.len; i++) {
     assert(
+        rstate.active_map.m[i].len > 0 &&
+        "shouldn't have any zero length maps");
+  }
+
+  for (size_t i = 1; i < rstate.active_map.len; i++) {
+    assert(
+        (rstate.active_map.m[0].start && (PAGE_SIZE - 1)) != 0 &&
+        "start address should be page aligned");
+    assert(
+        (rstate.active_map.m[0].start && (PAGE_SIZE - 1)) != 0 &&
+        "end address should be page aligned");
+  }
+
+  for (size_t i = 1; i < rstate.active_map.len; i++) {
+    assert(
         rstate.active_map.m[i].w != rstate.active_map.m[i - 1].w &&
         "table entries must be alternating");
   }
@@ -1503,6 +1583,7 @@ void full_verify(int committed) {
   char r, w, x, s;
 
   int found_start = 0;
+  int err = 0;
 
   for (size_t i = 0; i < rstate.active_map.len; i++) {
     assert(
@@ -1519,12 +1600,30 @@ void full_verify(int committed) {
           6);
     }
 
-    assert(rstate.active_map.m[i].start == (void *)start);
-    assert(
-        (char *)rstate.active_map.m[i].start + rstate.active_map.m[i].len ==
-        (char *)end);
-    assert(rstate.active_map.m[i].w == (w == 'w'));
+    if (rstate.active_map.m[i].start != (void *)start ||
+        (char *)rstate.active_map.m[i].start + rstate.active_map.m[i].len !=
+            (char *)end ||
+        rstate.active_map.m[i].w != (w == 'w')) {
+      err = 1;
+      break;
+    }
   }
+
+  if (err) {
+    LOG("linux page table mismatch!\n");
+    LOG("expected:\n");
+    print_table(&rstate.active_map);
+    LOG("but linux says we're actually:\n");
+    rewind(f);
+
+    int ch;
+    while ((ch = fgetc(f)) != EOF) {
+      putchar(ch);
+    }
+
+    assert(0);
+  }
+
   fclose(f);
 }
 #else
