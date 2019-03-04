@@ -1501,10 +1501,23 @@ void full_verify(int committed) {
   uintptr_t start;
   uintptr_t end;
   char r, w, x, s;
+
+  int found_start = 0;
+
   for (size_t i = 0; i < rstate.active_map.len; i++) {
     assert(
         fscanf(f, "%lx-%lx %c%c%c%c %*[^\n]", &start, &end, &r, &w, &x, &s) ==
         6);
+
+    while (!found_start) {
+      if ((void *)start == H->map_start) {
+        found_start = 1;
+        break;
+      }
+      assert(
+          fscanf(f, "%lx-%lx %c%c%c%c %*[^\n]", &start, &end, &r, &w, &x, &s) ==
+          6);
+    }
 
     assert(rstate.active_map.m[i].start == (void *)start);
     assert(
