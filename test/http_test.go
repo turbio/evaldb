@@ -123,6 +123,17 @@ func makeQuery(q *query, db, lang string) (*queryResult, error) {
 	return &result, nil
 }
 
+func TestSomeErrors(t *testing.T) {
+	result1, err := makeQuery(&query{Code: "asdf"}, "some-errs", "duktape")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, result1.Error)
+
+	result2, err := makeQuery(&query{Code: "asdf"}, "some-errs", "duktape")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, result2.Error)
+	assert.Equal(t, result1.Error, result2.Error)
+}
+
 func TestSuperSimpleExpression(t *testing.T) {
 	result, err := makeQuery(&query{Code: "return 1+1"}, "expr", "luaval")
 	assert.NoError(t, err)

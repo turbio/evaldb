@@ -17,6 +17,24 @@ var dbsBucket = []byte("dbs")
 
 var db *bolt.DB
 
+func dbEvaler(dbid string) (string, error) {
+	lang := ""
+
+	err := db.View(func(tx *bolt.Tx) error {
+		rdbs := tx.Bucket(dbsBucket)
+		edb := rdbs.Bucket([]byte(dbid))
+
+		lang = string(edb.Get([]byte("lang")))
+
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return lang, nil
+}
+
 func hasDB(dbid string) bool {
 	found := false
 
@@ -164,6 +182,15 @@ func openDB(path string) {
 
 			d.ForEach(func(k []byte, v []byte) error {
 				log.Printf("\t%s: %s", k, v)
+
+				if string(k) == "logs" {
+					bb := d.Bucket(k)
+					bb.ForEach(func(k []byte, v []byte) error {
+						log.Printf("\t%s: %s", k, v)
+						return nil
+					})
+				}
+
 				return nil
 			})
 

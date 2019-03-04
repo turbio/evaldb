@@ -57,7 +57,12 @@ var elock = sync.RWMutex{}
 var dbpath string
 
 func newEvaler(db string) (*evaler, error) {
-	cmd := exec.Command("./luaval", "-d", path.Join(dbpath, db), "-s")
+	evalerName, err := dbEvaler(db)
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := exec.Command("./"+evalerName, "-d", path.Join(dbpath, db), "-s")
 	cmd.Stderr = os.Stderr
 
 	stdin, err := cmd.StdinPipe()
