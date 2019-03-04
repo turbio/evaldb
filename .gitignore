@@ -1,6 +1,6 @@
 /luaval
 /memgraph
-/evalserver
+/gateway
 /memtest
 /db
 /duktape

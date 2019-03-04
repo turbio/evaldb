@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -104,6 +105,10 @@ func makeQuery(q *query, db, lang string) (*queryResult, error) {
 		return nil, err
 	}
 
+	if res.StatusCode != http.StatusOK {
+		return nil, errors.New(res.Status)
+	}
+
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
@@ -138,6 +143,42 @@ func TestCounting(t *testing.T) {
 		assert.Empty(t, result.Error)
 		assert.EqualValues(t, i, result.Object)
 	}
+}
+
+func TestNoLeadingDash(t *testing.T) {
+	_, err := makeQuery(
+		&query{Code: "doesn't matter"},
+		"-start-with-dash",
+		"luaval",
+	)
+	assert.Error(t, err)
+}
+
+func TestAllowInsideDashes(t *testing.T) {
+	_, err := makeQuery(
+		&query{Code: "doesn't matter"},
+		"start-with-dash",
+		"luaval",
+	)
+	assert.NoError(t, err)
+}
+
+func TestNoTailingDashes(t *testing.T) {
+	_, err := makeQuery(
+		&query{Code: "doesn't matter"},
+		"start-with-dash-",
+		"luaval",
+	)
+	assert.Error(t, err)
+}
+
+func TestNoSlashes(t *testing.T) {
+	_, err := makeQuery(
+		&query{Code: "doesn't matter"},
+		"start/with",
+		"luaval",
+	)
+	assert.Error(t, err)
 }
 
 func BenchmarkCount(b *testing.B) {

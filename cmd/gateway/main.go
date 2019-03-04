@@ -160,7 +160,7 @@ func memgraph(w http.ResponseWriter, r *http.Request) {
 
 	db := r.URL.Query().Get("db")
 
-	if db == "" || !alnum(db) {
+	if db == "" || !validName(db) {
 		return
 	}
 
@@ -342,8 +342,20 @@ func eval(w http.ResponseWriter, r *http.Request) {
 	w.Write(remarsh)
 }
 
-func alnum(str string) bool {
-	for _, c := range str {
+func validName(str string) bool {
+	if len(str) < 2 {
+		return false
+	}
+
+	if len(str) > 256 {
+		return false
+	}
+
+	for i, c := range str {
+		if c == '-' && i != 0 && i != len(str)-1 {
+			continue
+		}
+
 		if (c < 'a' || c > 'z') &&
 			(c < 'A' || c > 'Z') &&
 			(c < '0' || c > '9') {
@@ -376,7 +388,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !alnum(name) {
+	if !validName(name) {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("name must be alphanumeric"))
 		return
