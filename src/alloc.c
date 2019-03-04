@@ -108,7 +108,6 @@ void insert_map(struct table *pm, struct map m, size_t index) {
 }
 
 void remove_map(struct table *pm, size_t index) {
-  assert(index != ~0);
   assert(index < pm->len);
 
   for (size_t i = index; i < pm->len; i++) {

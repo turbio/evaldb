@@ -25,9 +25,10 @@ all: $(CBINS) $(SERVER)
 test:
 	go test -v ./test
 
-valgrind:
-	echo 0 | sudo tee /proc/sys/kernel/randomize_va_space
-	./test/valgrind-tests
+# TODO(turbio): valgrind doesn't like our use fo mremap
+# valgrind:
+# 	echo 0 | sudo tee /proc/sys/kernel/randomize_va_space
+# 	./test/valgrind-tests
 
 cppcheck:
 	cppcheck \

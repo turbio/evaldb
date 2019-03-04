@@ -2,7 +2,7 @@ version: v1.0
 name: evaldb
 agent:
   machine:
-    type: e1-standard-2
+    type: e1-standard-8
     os_image: ubuntu1804
 
 blocks:
@@ -25,14 +25,8 @@ blocks:
         - name: unit tests
           commands:
             - checkout
-            - install-package libjansson-dev
+            - install-package libjansson-dev clang
             - change-go-version 1.11
             - go get -v -d -t ./...
             - make
             - make test
-        - name: valgrind
-          commands:
-            - checkout
-            - install-package valgrind libjansson-dev
-            - make luaval
-            - make valgrind
