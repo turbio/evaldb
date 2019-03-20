@@ -6,9 +6,29 @@ body {
   font-size: 12px;
 }
 
+* {
+  box-sizing: border-box;
+}
+
+input.arg {
+  border: none;
+  border-bottom: solid 1px black;
+  padding: 0;
+}
+
+button.arg {
+  border: none;
+  padding: 0 0.25em;
+}
+
+input.arg.err {
+  border-bottom: solid 1px red;
+}
+
 input,
 select,
 button {
+  color: black;
   border: solid 1px black;
   padding: 0.5em;
   background: white;
@@ -23,13 +43,27 @@ button:hover {
   color: white;
 }
 
+.func-head,
+.func-tail {
+  color: #444;
+}
+
+.query-box {
+  width: 100%;
+  padding-left: 2px;
+  cursor: text;
+}
+
 .query {
   border: solid 1px black;
   display: flex;
 }
 
-.query > textarea {
+.query-code {
+  outline: none;
+  overflow-x: hidden;
   margin: 0;
+  padding-left: 1em;
   border: none;
   width: 100%;
   font-family: monospace;
@@ -51,11 +85,11 @@ button:hover {
   border-left: 1px solid black;
 }
 
-.query:not(.readonly) > button {
+.query > button {
   cursor: pointer;
 }
 
-.query:not(.readonly) > button:hover {
+.query > button:hover {
   background: black;
   color: white;
 }
@@ -152,6 +186,10 @@ button:hover {
   padding: 1em;
   background: black;
   color: white;
+}
+
+.headbar input {
+  width: 16em;
 }
 
 .create-db {

@@ -314,7 +314,7 @@ func eval(w http.ResponseWriter, r *http.Request) {
 		<-ran
 
 		result = queryResult{
-			Error: "execution timed out after 1 second",
+			Error: "execution timed out after 5 seconds",
 		}
 	case <-ran:
 		if err := json.Unmarshal(buff, &result); err != nil {
