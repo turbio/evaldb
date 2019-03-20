@@ -4,7 +4,6 @@ RUN apt-get update
 RUN apt-get install -y libjansson-dev
 RUN apt-get install -y libreadline-dev
 RUN apt-get install -y graphviz
-RUN apt-get install -y clang
 
 RUN mkdir -p /go/src/github.com/turbio/evaldb
 
@@ -19,4 +18,4 @@ RUN mkdir /db
 
 EXPOSE 5000
 
-CMD ./gateway -path /db
+ENTRYPOINT ["./gateway", "-path", "/db"]

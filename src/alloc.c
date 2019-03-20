@@ -1500,6 +1500,7 @@ void *snap_realloc(struct heap_header *heap, void *ptr, size_t size) {
   return result;
 }
 
+// cppcheck-suppress unusedFunction
 int segments_inside_pages(struct node *n, void *d) {
   if (n->type != SNAP_NODE_PAGE) {
     return WALK_CONTINUE;
@@ -1523,6 +1524,7 @@ int segments_inside_pages(struct node *n, void *d) {
   return WALK_CONTINUE;
 }
 
+// cppcheck-suppress unusedFunction
 int verify_all_committed(struct node *n, void *d) {
   if (!n->committed) {
     if (n->type == SNAP_NODE_GENERATION) {

@@ -9,11 +9,11 @@ blocks:
   - name: lint
     task:
       jobs:
-        - name: cppcheck
-          commands:
-            - checkout
-            - install-package cppcheck
-            - make cppcheck
+        #        - name: cppcheck
+        #          commands:
+        #            - checkout
+        #            - install-package cppcheck libjansson-dev
+        #            - make cppcheck
         - name: clang tidy
           commands:
             - install-package libjansson-dev clang-tidy clang

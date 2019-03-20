@@ -1,10 +1,10 @@
 TOPDIR     := .
 SRCDIR     := $(TOPDIR)/src
 
-CC         := clang -std=c99 -pedantic-errors -g
+CC         := cc -std=c99 -pedantic-errors -g
 
 LUACFLAGS  := -I./vendor/lua-5.3.5/src
-LUALDFLAGS := -L./vendor/lua-5.3.5/src -llua
+LUALDFLAGS := -L./vendor/lua-5.3.5/src
 
 DUKTAPECFLAGS  := -I./vendor/duktape-2.3.0/src
 DUKTAPELDFLAGS :=

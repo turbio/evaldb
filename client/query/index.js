@@ -24,31 +24,76 @@ class Root extends React.Component {
     this.setState({ newQuery: { ...this.state.newQuery, ...newQuery } });
   }
 
+  mergeInTransaction(t) {
+    const { gens, head } = this.state;
+
+    const existing = gens[t.result.gen];
+
+    if (existing) {
+      t.children = existing.children;
+    } else {
+      t.children = [];
+    }
+
+    t.type = 'gen';
+    t.id = t.result.gen;
+
+    // fake a parent for a little while
+    if (!gens[t.result.parent]) {
+      gens[t.result.parent] = {
+        result: { gen: t.result.parent },
+        query: {},
+        children: [],
+        type: 'gen',
+        id: t.result.parent,
+      };
+    }
+
+    const parent = gens[t.result.parent];
+
+    if (parent.children.filter(c => c.id === t.id).length === 0) {
+      parent.children.push(t);
+      parent.children.sort((l, r) => l.id - r.id);
+    }
+
+    this.setState({
+      gens: {
+        ...gens,
+        [t.result.gen]: t,
+      },
+      head: head < t.id && !t.result.error ? t.id : head,
+    });
+  }
+
   doQuery() {
     const {
       head,
-      newQuery: { code, args },
+      newQuery: { code, args: aargs },
     } = this.state;
+
+    const args = aargs.reduce((sum, c) => {
+      if (!validJSON(c.value)) {
+        sum[c.name] = 'invalid json!';
+        return sum;
+      }
+
+      sum[c.name] = JSON.parse(c.value);
+
+      return sum;
+    }, {});
 
     $.ajax({
       url: '/eval/' + dbname,
       type: 'POST',
       data: JSON.stringify({
         code,
-        args: args.reduce((sum, c) => {
-          if (!validJSON(c.value)) {
-            sum[c.name] = 'invalid json!';
-            return sum;
-          }
-
-          sum[c.name] = JSON.parse(c.value);
-
-          return sum;
-        }, {}),
+        args,
         gen: head,
       }),
       contentType: 'application/json',
-      success: result => {},
+      success: result => {
+        this.mergeInTransaction({ query: { args, code, gen: head }, result });
+      },
     });
 
     this.setQuery({ code: '', args: [] });
@@ -58,41 +103,7 @@ class Root extends React.Component {
     const es = new EventSource('/tail/' + dbname);
     es.addEventListener('transac', e => {
       const t = JSON.parse(e.data);
-
-      if (this.state.gens[t.result.gen]) {
-        t.children = this.state.gens[t.result.gen].children;
-      } else {
-        t.children = [];
-      }
-
-      t.type = 'gen';
-      t.id = t.result.gen;
-
-      // fake a parent for a little while
-      if (!this.state.gens[t.result.parent]) {
-        this.state.gens[t.result.parent] = {
-          result: { gen: t.result.parent },
-          query: {},
-          children: [],
-          type: 'gen',
-          id: t.result.parent,
-        };
-      }
-
-      if (t.result.error) {
-        this.state.gens[t.result.parent].children.unshift(t);
-      } else {
-        this.state.gens[t.result.parent].children.push(t);
-      }
-
-      this.setState({
-        gens: {
-          ...this.state.gens,
-          [t.result.gen]: t,
-        },
-        head:
-          this.state.head < t.id && !t.result.error ? t.id : this.state.head,
-      });
+      this.mergeInTransaction(t);
     });
   }
 

@@ -426,6 +426,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	dp := flag.String("path", "./db/", "path to the root folder")
+	port := flag.String("port", "5000", "port to listen on")
 
 	flag.Parse()
 
@@ -443,6 +444,6 @@ func main() {
 	http.Handle("/", http.FileServer(http.Dir("./client")))
 
 	fmt.Println(strings.Repeat("=", 50))
-	log.Println("http on :5000")
-	log.Fatalln(http.ListenAndServe(":5000", nil))
+	log.Println("http on :" + *port)
+	log.Fatalln(http.ListenAndServe(":"+*port, nil))
 }
