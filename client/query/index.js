@@ -353,6 +353,52 @@ const Gen = ({
         'ms' +
         ' | ' +
         (warm ? 'warm' : 'cold'),
+      e(
+        'span',
+        { style: { float: 'right' } },
+        'as: ',
+        // <input type="radio" name="gender" value="male"> Male<br>
+        // <input type="radio" name="gender" value="female"> Female<br>
+        e(
+          'label',
+          {
+            for: 'cURL',
+            className: 'as-code-label',
+          },
+          'cURL',
+        ),
+        e('input', {
+          className: 'as-code-radio',
+          id: 'cURL',
+          type: 'radio',
+          name: 'as-code',
+          value: 'cURL',
+        }),
+        e(
+          'div',
+          {
+            className: 'as-code-box',
+          },
+          "curl '" +
+            window.location.host +
+            '/' +
+            dbname +
+            "/eval' " +
+            "-H 'Content-Type: application/json' " +
+            "--data '" +
+            JSON.stringify({
+              code,
+              args: Object.keys(args).length ? args : undefined,
+            }) +
+            "'",
+        ),
+        e('input', {
+          className: 'as-code-radio',
+          type: 'radio',
+          name: 'as-code',
+          value: 'none',
+        }),
+      ),
     ),
     error
       ? e('div', { className: 'result error' }, JSON.stringify(error, null, 2))

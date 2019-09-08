@@ -195,3 +195,41 @@ button:hover {
 .create-db {
   text-align: center;
 }
+
+.as-code-radio:checked + .as-code-box {
+  display: block;
+}
+
+.as-code-radio {
+  display: none;
+}
+
+.as-code-button {
+  position: relative;
+
+  cursor: pointer;
+  color: white;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  display: inline-block;
+  padding: 0;
+}
+
+.as-code-button:focus {
+}
+
+.as-code-box {
+  position: absolute;
+  right: 0;
+
+  display: none;
+  background: black;
+  cursor: default;
+  white-space: nowrap;
+  padding: 1em;
+}
+
+.as-code-button:focus > .as-code-box {
+  display: block;
+}
