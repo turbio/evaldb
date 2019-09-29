@@ -1,10 +1,21 @@
 'use strict';
 
-const dbname = window.location.pathname.split('/').slice(-1)[0];
-
-document.getElementById('name-input').value = dbname;
-
 const e = React.createElement;
+
+const funcSyntax = {
+  luaval: {
+    headOpen: `function(`,
+    headClose: `)`,
+    tail: 'end',
+    placeholder: '-- your code here',
+  },
+  duktape: {
+    headOpen: `function(`,
+    headClose: `) {`,
+    tail: '}',
+    placeholder: '// your code here',
+  },
+}[lang];
 
 class Root extends React.Component {
   constructor(props) {
@@ -180,6 +191,7 @@ class Input extends React.Component {
             className: 'query-code',
             rows: 1,
             key: 'query',
+            placeholder: funcSyntax.placeholder,
             ref: textarea => {
               this.textarea = textarea;
             },
@@ -203,7 +215,7 @@ class Input extends React.Component {
               }
             },
           }),
-          e('div', { className: 'func-head' }, 'end'),
+          e('div', { className: 'func-head' }, funcSyntax.tail),
         ),
         e(
           'button',
@@ -236,11 +248,11 @@ const Args = ({ args }) =>
   e(
     'div',
     { className: 'func-head' },
-    'function (',
+    funcSyntax.headOpen,
     Object.keys(args)
       .map(k => k + ' = ' + JSON.stringify(args[k]))
       .join(', '),
-    ')',
+    funcSyntax.headClose,
   );
 
 class ArgInput extends React.Component {
@@ -306,7 +318,7 @@ const EditArgs = ({ args, setQuery }) =>
   e(
     'div',
     { className: 'func-head' },
-    'function (',
+    funcSyntax.headOpen,
     args.map((a, i, arr) => e(ArgInput, { key: i, a, i, arr, setQuery })),
     e(
       'button',
@@ -316,7 +328,7 @@ const EditArgs = ({ args, setQuery }) =>
       },
       '+',
     ),
-    ')',
+    funcSyntax.headClose,
   );
 
 const InitialGen = () =>
@@ -342,7 +354,7 @@ const Gen = ({
           value: code,
           rows: Math.min(10, code.split('\n').length),
         }),
-        e('div', { className: 'func-head' }, 'end'),
+        e('div', { className: 'func-head' }, funcSyntax.tail),
       ),
     ),
     e(

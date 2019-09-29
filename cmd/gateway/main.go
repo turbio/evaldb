@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"html/template"
 	"io"
 	"io/ioutil"
 	"log"
@@ -131,15 +132,14 @@ func parseQuery(w http.ResponseWriter, r *http.Request) (*query, bool) {
 	if strings.Contains(ct, "application/json") {
 		buff, err := ioutil.ReadAll(r.Body)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return nil, false
 		}
 
 		var q query
 		err = json.Unmarshal(buff, &q)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(err.Error()))
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return nil, false
 		}
 
@@ -150,8 +150,8 @@ func parseQuery(w http.ResponseWriter, r *http.Request) (*query, bool) {
 		return &q, true
 	}
 
-	w.WriteHeader(http.StatusBadRequest)
-	w.Write([]byte("json only"))
+	http.Error(w, "json only", http.StatusBadRequest)
+
 	return nil, false
 }
 
@@ -220,7 +220,7 @@ func tail(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		err := tailDB(target, ch)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
+			http.Error(w, "oh no", http.StatusBadRequest)
 		}
 	}()
 
@@ -259,8 +259,7 @@ func eval(w http.ResponseWriter, r *http.Request) {
 
 	dbname := strings.TrimPrefix(r.URL.Path, "/eval/")
 	if !hasDB(dbname) {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("db doesn't exist"))
+		http.Error(w, "doesn't exist", http.StatusBadRequest)
 		return
 	}
 
@@ -357,7 +356,7 @@ func validName(str string) bool {
 	}
 
 	for i, c := range str {
-		if c == '-' && i != 0 && i != len(str)-1 {
+		if c == '_' && i != 0 && i != len(str)-1 {
 			continue
 		}
 
@@ -374,8 +373,7 @@ func validName(str string) bool {
 func create(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(err.Error()))
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -388,14 +386,20 @@ func create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(name) < 2 {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("name must be at least 2 characters"))
+		http.Error(
+			w,
+			"name must be at least 2 characters",
+			http.StatusBadRequest,
+		)
 		return
 	}
 
 	if !validName(name) {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("name must be alphanumeric"))
+		http.Error(
+			w,
+			"name must be alphanumeric with underscores",
+			http.StatusBadRequest,
+		)
 		return
 	}
 
@@ -405,8 +409,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if lang != "luaval" && lang != "duktape" {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("invalid language"))
+		http.Error(w, "invalid language", http.StatusBadRequest)
 		return
 	}
 
@@ -417,22 +420,40 @@ func create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		w.WriteHeader(http.StatusInternalServerError)
+		http.Error(w, "oh no", http.StatusInternalServerError)
 		return
 	}
 
 	http.Redirect(w, r, "/query/"+name, http.StatusFound)
 }
 
+var queryTmpl = template.Must(template.ParseFiles("./client/query.html"))
+
 func queryPage(w http.ResponseWriter, r *http.Request) {
 	name := path.Base(r.URL.Path)
 
-	if hasDB(name) {
-		http.ServeFile(w, r, "./client/query/index.html")
+	if !hasDB(name) {
+		http.NotFound(w, r)
 		return
 	}
 
-	http.FileServer(http.Dir("./client")).ServeHTTP(w, r)
+	lang, err := dbEvaler(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = queryTmpl.Execute(w, struct {
+		Name string
+		Lang string
+	}{
+		Name: name,
+		Lang: lang,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func main() {

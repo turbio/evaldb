@@ -10,14 +10,26 @@
 
 <body>
   <div class="headbar">
-    db: <input id="name-input" type="text" value="..." readonly />
+    <span>db:</span>
+    <span class="headbar-dbname">{{ .Name }}</span>
+    <span class="headbar-dbname" id="headbar-lang"></span>
   </div>
+
+  <script>
+    var dbname = "{{ .Name }}";
+    var lang = "{{ .Lang }}";
+
+    document.getElementById('headbar-lang').innerText = {
+      'duktape': 'javascript',
+      'luaval': 'lua',
+    }[lang];
+  </script>
 
   <div id="timeline" class="timeline"></div>
 
   <script src="https://unpkg.com/react@16/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@16/umd/react-dom.production.min.js" crossorigin></script>
-  <script src="/query/index.js" charset="utf-8"></script>
+  <script src="/query.js" charset="utf-8"></script>
 </body>
 
 </html>

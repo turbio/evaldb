@@ -43,6 +43,12 @@ button:hover {
   color: white;
 }
 
+.headbar-dbname {
+  background: white;
+  color: black;
+  padding: 0.5em;
+}
+
 .func-head,
 .func-tail {
   color: #444;
