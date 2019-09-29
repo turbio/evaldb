@@ -383,7 +383,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 	lang := r.FormValue("lang")
 
 	if hasDB(name) {
-		http.Redirect(w, r, "/query/#"+name, http.StatusFound)
+		http.Redirect(w, r, "/query/"+name, http.StatusFound)
 		return
 	}
 
@@ -400,7 +400,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if lang == "" {
-		http.Redirect(w, r, "/create/#"+name, http.StatusFound)
+		http.Redirect(w, r, "/create/"+name, http.StatusFound)
 		return
 	}
 
@@ -413,7 +413,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 	err = createDB(name, lang)
 	if err != nil {
 		if err == errDBExists {
-			http.Redirect(w, r, "/query/#"+name, http.StatusFound)
+			http.Redirect(w, r, "/query/"+name, http.StatusFound)
 			return
 		}
 
@@ -421,7 +421,18 @@ func create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, "/query/#"+name, http.StatusFound)
+	http.Redirect(w, r, "/query/"+name, http.StatusFound)
+}
+
+func queryPage(w http.ResponseWriter, r *http.Request) {
+	name := path.Base(r.URL.Path)
+
+	if hasDB(name) {
+		http.ServeFile(w, r, "./client/query/index.html")
+		return
+	}
+
+	http.FileServer(http.Dir("./client")).ServeHTTP(w, r)
 }
 
 func main() {
@@ -433,14 +444,14 @@ func main() {
 	openDB(path.Join(*dp, "__meta"))
 	dbpath = *dp
 
-	http.HandleFunc("/eval/", eval)
-	http.HandleFunc("/tail/", tail)
-
 	http.HandleFunc("/create", create)
 
 	http.HandleFunc("/memgraph.svg", memgraph)
 
-	// '/', '/query/', and '/create/'
+	http.HandleFunc("/eval/", eval)
+	http.HandleFunc("/tail/", tail)
+	http.HandleFunc("/query/", queryPage)
+
 	http.Handle("/", http.FileServer(http.Dir("./client")))
 
 	fmt.Println(strings.Repeat("=", 50))

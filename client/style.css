@@ -179,6 +179,8 @@ button:hover {
   color: white;
   padding: 0.25em;
   padding-left: 0.5em;
+
+  position: relative;
 }
 
 .headbar {
@@ -196,40 +198,27 @@ button:hover {
   text-align: center;
 }
 
-.as-code-radio:checked + .as-code-box {
-  display: block;
-}
-
-.as-code-radio {
-  display: none;
-}
-
 .as-code-button {
-  position: relative;
-
-  cursor: pointer;
   color: white;
   text-decoration: underline;
   background: none;
-  border: none;
-  display: inline-block;
   padding: 0;
-}
-
-.as-code-button:focus {
 }
 
 .as-code-box {
   position: absolute;
   right: 0;
+  top: 1.5em;
 
-  display: none;
-  background: black;
+  background: white;
+  color: black;
+  border: solid black 1px;
+  border-top: none;
   cursor: default;
   white-space: nowrap;
-  padding: 1em;
-}
+  padding: 0.5em;
 
-.as-code-button:focus > .as-code-box {
-  display: block;
+  max-width: 100%;
+
+  z-index: 1;
 }

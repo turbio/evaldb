@@ -16,23 +16,33 @@
     <h1>Create a Database?</h1>
     <form action="/create" method="POST">
       <label for="db-name">name:</label>
-      <input type="text" name="name" placeholder="db name" id="db-name" style="width: 20em; max-width: 50vw" />
+      <input
+        type="text"
+        name="name"
+        placeholder="db name (keep this secret)"
+        id="db-name"
+        style="width: 20em; max-width: 50vw"
+      />
+      <select name="lang">
+        <option value="luaval">Lua (PUC)</option>
+        <option value="duktape">Javascript (duktape)</option>
+      </select>
       <input type="submit" value="go" />
     </form>
   </div>
-  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
   <script>
     function makeid(len) {
-      var possible = "abcdefghijklmnopqrstuvwxyz0123456789";
+      var chs = "abcdefghijklmnopqrstuvwxyz0123456789";
       var text = "";
 
-      for (var i = 0; i < len; i++)
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
+      for (var i = 0; i < len; i++) {
+        text += chs.charAt(Math.floor(Math.random() * chs.length));
+      }
 
       return text;
     }
 
-    $('#db-name').attr('value', 'mycooldb-' + makeid(16));
+    document.getElementById("db-name").value = 'mycooldb-' + makeid(16);
   </script>
 </body>
 

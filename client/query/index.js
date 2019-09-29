@@ -1,7 +1,8 @@
 'use strict';
 
-const dbname = window.location.hash.slice(1);
-$('.headbar > input').attr('value', dbname);
+const dbname = window.location.pathname.split('/').slice(-1)[0];
+
+document.getElementById('name-input').value = dbname;
 
 const e = React.createElement;
 
@@ -82,19 +83,21 @@ class Root extends React.Component {
       return sum;
     }, {});
 
-    $.ajax({
-      url: '/eval/' + dbname,
-      type: 'POST',
-      data: JSON.stringify({
+    fetch('/eval/' + dbname, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
         code,
         args,
         gen: head,
       }),
-      contentType: 'application/json',
-      success: result => {
+    })
+      .then(res => res.json())
+      .then(result => {
         this.mergeInTransaction({ query: { args, code, gen: head }, result });
-      },
-    });
+      });
 
     this.setQuery({ code: '', args: [] });
   }
@@ -227,10 +230,7 @@ const validJSON = str => {
   return true;
 };
 
-// was previously:
-//!!str.match(/^[a-zA-Z][a-zA-Z0-9]*$/);
-// but actually we don't care that much
-const validArg = str => true;
+const validArg = str => !!str.match(/^[a-zA-Z][a-zA-Z0-9]*$/);
 
 const Args = ({ args }) =>
   e(
@@ -263,6 +263,11 @@ class ArgInput extends React.Component {
         size: a.name.length > 4 ? a.name.length : 4,
         value: a.name,
         onChange: e => {
+          if (e.target.value.slice(-1) === '=') {
+            document.getElementById('value-' + i).focus();
+            return;
+          }
+
           setQuery({
             args: [
               ...arr.slice(0, i),
@@ -276,6 +281,7 @@ class ArgInput extends React.Component {
       e('input', {
         type: 'text',
         key: 'value-' + i,
+        id: 'value-' + i,
         placeholder: 'json',
         className: 'arg' + (!validJSON(a.value) ? ' err' : ''),
         size: a.value.length > 4 ? a.value.length : 4,
@@ -353,57 +359,100 @@ const Gen = ({
         'ms' +
         ' | ' +
         (warm ? 'warm' : 'cold'),
-      e(
-        'span',
-        { style: { float: 'right' } },
-        'as: ',
-        // <input type="radio" name="gender" value="male"> Male<br>
-        // <input type="radio" name="gender" value="female"> Female<br>
-        e(
-          'label',
-          {
-            for: 'cURL',
-            className: 'as-code-label',
-          },
-          'cURL',
-        ),
-        e('input', {
-          className: 'as-code-radio',
-          id: 'cURL',
-          type: 'radio',
-          name: 'as-code',
-          value: 'cURL',
-        }),
-        e(
-          'div',
-          {
-            className: 'as-code-box',
-          },
-          "curl '" +
-            window.location.host +
-            '/' +
-            dbname +
-            "/eval' " +
-            "-H 'Content-Type: application/json' " +
-            "--data '" +
-            JSON.stringify({
-              code,
-              args: Object.keys(args).length ? args : undefined,
-            }) +
-            "'",
-        ),
-        e('input', {
-          className: 'as-code-radio',
-          type: 'radio',
-          name: 'as-code',
-          value: 'none',
-        }),
-      ),
+      e(asCode, { code, args }),
     ),
     error
       ? e('div', { className: 'result error' }, JSON.stringify(error, null, 2))
       : e('div', { className: 'result' }, JSON.stringify(object, null, 2)),
   );
+
+class asCode extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { selected: null };
+  }
+
+  render() {
+    const { code, args } = this.props;
+    const { selected } = this.state;
+
+    const url =
+      window.location.protocol +
+      '//' +
+      window.location.host +
+      '/eval/' +
+      dbname;
+
+    const data = JSON.stringify({
+      code,
+      args: Object.keys(args).length ? args : undefined,
+    });
+
+    const snippets = {
+      curl: `curl '${url}' -H 'Content-Type: application/json' --data '${data}'`,
+      fetch: `fetch("${url}", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(${data}),
+})
+.then(res => res.json())
+.then(res => console.log(res));`,
+    };
+
+    let elem = null;
+
+    if (selected) {
+      elem = e(
+        'div',
+        {
+          className: 'as-code-box',
+          key: 'box',
+        },
+        e(
+          'pre',
+          {
+            style: {
+              resize: 'none',
+              border: 'none',
+              width: '100%',
+              whiteSpace: 'pre-wrap',
+              cursor: 'text',
+            },
+            onClick: e => {
+              const range = document.createRange();
+              range.selectNode(e.target);
+              getSelection().removeAllRanges();
+              getSelection().addRange(range);
+            },
+          },
+          snippets[selected],
+        ),
+      );
+    }
+
+    const sel = s => () =>
+      this.setState({ selected: this.state.selected === s ? null : s });
+
+    return [
+      e(
+        'span',
+        { style: { float: 'right' }, key: 'sp' },
+        'as: ',
+        e(
+          'button',
+          { className: 'as-code-button', onClick: sel('curl') },
+          'cURL',
+        ),
+        e(
+          'button',
+          { className: 'as-code-button', onClick: sel('fetch') },
+          'fetch',
+        ),
+      ),
+      elem,
+    ];
+  }
+}
 
 const dom = document.querySelector('#timeline');
 ReactDOM.render(e(Root), dom);
