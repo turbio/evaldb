@@ -102,12 +102,12 @@ class Root extends React.Component {
       body: JSON.stringify({
         code,
         args,
-        gen: head,
+        // gen: head,
       }),
     })
       .then(res => res.json())
       .then(result => {
-        this.mergeInTransaction({ query: { args, code, gen: head }, result });
+        this.mergeInTransaction({ query: { args, code }, result });
       });
 
     this.setQuery({ code: '', args: [] });
