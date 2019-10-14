@@ -26,6 +26,12 @@
 #define generation snap_generation
 #define node snap_node
 
+#ifdef DEBUG_ALL
+#define DEBUG_LOGGING
+#define LOG_MAP_MODS
+#define FULL_VERIFY
+#endif
+
 #ifdef DEBUG_LOGGING
 #define SNAP_EVENT_LOG_PRECOMMITED
 #define SNAP_EVENT_LOG_FILE "/dev/stderr"
@@ -490,6 +496,29 @@ void merge_in_table(struct table newmaps) {
 #endif
 }
 
+enum address_in {
+  ADDR_IN_INVALID = -1,
+  ADDR_IN_USER_DATA = 1,
+  ADDR_IN_META_DATA = 2,
+};
+
+int object_in_range(uintptr_t addr, size_t size) {
+  if (addr < (uintptr_t)H->map_start) {
+    return ADDR_IN_INVALID;
+  }
+
+  if (addr >= (uintptr_t)H->map_start + H->size) {
+    return ADDR_IN_INVALID;
+  }
+
+  if (addr + size <
+      (uintptr_t)H->map_start + (PAGE_SIZE * (INITIAL_PAGES / 2))) {
+    return ADDR_IN_META_DATA;
+  }
+
+  return ADDR_IN_USER_DATA;
+}
+
 enum walk_action {
   WALK_CONTINUE = 0,
   WALK_EXIT = 1,
@@ -504,6 +533,10 @@ int walk_nodes(struct node *n, int (*cb)(struct node *, void *), void *d) {
 
   if (n->type == SNAP_NODE_GENERATION) {
     struct generation *g = (struct generation *)n;
+    assert(
+        object_in_range((uintptr_t)g, sizeof(struct generation)) ==
+        ADDR_IN_META_DATA);
+
     for (int i = 0; i < GENERATION_CHILDREN; i++) {
       if (!g->c[i]) {
         continue;
@@ -513,6 +546,12 @@ int walk_nodes(struct node *n, int (*cb)(struct node *, void *), void *d) {
         return WALK_EXIT;
       }
     }
+  } else if (n->type == SNAP_NODE_PAGE) {
+    assert(
+        object_in_range((uintptr_t)n, sizeof(struct node)) ==
+        ADDR_IN_USER_DATA);
+  } else {
+    assert(0 && "invalid node type while talking, probably walked off the end");
   }
 
   return WALK_CONTINUE;
@@ -828,6 +867,8 @@ struct page *new_page(struct heap_header *heap, size_t pages) {
       .real_addr = f,
   };
 
+  assert(object_in_range((uintptr_t)f, pages * PAGE_SIZE) == ADDR_IN_USER_DATA);
+
   return f;
 }
 
@@ -840,6 +881,9 @@ int set_committed(struct node *n, void *d) {
 }
 
 struct page *page_copy(struct heap_header *h, struct page *p) {
+  assert(
+      object_in_range((uintptr_t)p, p->pages * PAGE_SIZE) == ADDR_IN_USER_DATA);
+
   struct page *new = new_page(h, p->pages);
   memcpy(new, p, p->pages * PAGE_SIZE);
 
@@ -856,6 +900,13 @@ struct page *page_copy(struct heap_header *h, struct page *p) {
 // TODO(turbio): just do some remapping
 void page_swap(struct heap_header *heap, struct page *p1, struct page *p2) {
   full_verify(1);
+
+  assert(
+      object_in_range((uintptr_t)p1, p1->pages * PAGE_SIZE) ==
+      ADDR_IN_USER_DATA);
+  assert(
+      object_in_range((uintptr_t)p2, p2->pages * PAGE_SIZE) ==
+      ADDR_IN_USER_DATA);
 
   assert(p1->pages > 0);
   assert(p1->pages == p2->pages);
@@ -913,6 +964,10 @@ struct generation *new_gen(struct heap_header *h, int index) {
       .c = {0},
   };
 
+  assert(
+      object_in_range((uintptr_t) new, sizeof(struct generation)) ==
+      ADDR_IN_META_DATA);
+
   return new;
 }
 
@@ -957,6 +1012,8 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
     fprintf(stderr, "SEGFAULT trying to read %p\n", addr);
     exit(2);
   }
+
+  assert(object_in_range((uintptr_t)addr, 1) == ADDR_IN_USER_DATA);
 
   if (H->committed == H->working) {
     fprintf(stderr, "SEGFAULT write outside of mutation %p\n", addr);
@@ -1285,7 +1342,6 @@ int snap_begin_mut(struct heap_header *heap) {
   struct table mm = {0};
 
   walk_nodes((struct node *)heap->root, pages_in_gen, &mm);
-
   merge_in_table(mm);
 
   return heap->working->gen;
