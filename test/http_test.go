@@ -124,11 +124,11 @@ func makeQuery(q *query, db, lang string) (*queryResult, error) {
 }
 
 func TestSomeErrors(t *testing.T) {
-	result1, err := makeQuery(&query{Code: "asdf"}, "some-errs", "duktape")
+	result1, err := makeQuery(&query{Code: "asdf"}, "some_errs", "duktape")
 	assert.NoError(t, err)
 	assert.NotEmpty(t, result1.Error)
 
-	result2, err := makeQuery(&query{Code: "asdf"}, "some-errs", "duktape")
+	result2, err := makeQuery(&query{Code: "asdf"}, "some_errs", "duktape")
 	assert.NoError(t, err)
 	assert.NotEmpty(t, result2.Error)
 	assert.Equal(t, result1.Error, result2.Error)
@@ -156,28 +156,28 @@ func TestCounting(t *testing.T) {
 	}
 }
 
-func TestNoLeadingDash(t *testing.T) {
+func TestNoLeadingUnderscore(t *testing.T) {
 	_, err := makeQuery(
 		&query{Code: "doesn't matter"},
-		"-start-with-dash",
+		"_start_with_under",
 		"luaval",
 	)
 	assert.Error(t, err)
 }
 
-func TestAllowInsideDashes(t *testing.T) {
+func TestAllowInsideUnderscores(t *testing.T) {
 	_, err := makeQuery(
 		&query{Code: "doesn't matter"},
-		"start-with-dash",
+		"start_with_under",
 		"luaval",
 	)
 	assert.NoError(t, err)
 }
 
-func TestNoTailingDashes(t *testing.T) {
+func TestNoTailingUnderscores(t *testing.T) {
 	_, err := makeQuery(
 		&query{Code: "doesn't matter"},
-		"start-with-dash-",
+		"start_with_under_",
 		"luaval",
 	)
 	assert.Error(t, err)
