@@ -43,6 +43,8 @@ int from_eval_arg(struct gengetopt_args_info args, struct heap_header *heap) {
     json_object_set_new(interp_args, key, val);
   }
 
+  int parent_gen = heap->committed->gen;
+
   snap_begin_mut(heap);
 
   enum evaler_status status;
@@ -68,6 +70,10 @@ int from_eval_arg(struct gengetopt_args_info args, struct heap_header *heap) {
   json_decref(interp_args);
 
   snap_commit(heap);
+
+  if (status) {
+    snap_checkout(heap, parent_gen);
+  }
 
   fprintf(stdout, "%s\n", rstrc);
 
