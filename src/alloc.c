@@ -788,8 +788,6 @@ void expand_heap_space(struct heap_header *heap, size_t min_expand) {
     new_size = round_page_up(min_expand * 2);
   }
 
-  LOG("expanding db size %d, %lu", rstate.db_fd, new_size);
-
   int err = ftruncate(rstate.db_fd, new_size);
   if (err) {
     fprintf(stderr, "could not increase db file size %s\n", strerror(errno));
@@ -1094,6 +1092,14 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
       (void *)fresh_page);
 
   rstate.handling_segv = NULL;
+}
+
+void snap_close(struct heap_header *heap) {
+  int err = close(rstate.db_fd);
+  assert(!err);
+
+  err = munmap(heap->map_start, heap->size);
+  assert(!err);
 }
 
 struct heap_header *snap_init(char *db_path) {

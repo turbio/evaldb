@@ -81,6 +81,7 @@ void snap_free(struct heap_header *heap, void *ptr);
 void *snap_realloc(struct heap_header *heap, void *ptr, size_t size);
 
 struct heap_header *snap_init(char *db_path);
+void snap_close(struct heap_header *heap);
 
 int snap_commit(struct heap_header *heap);
 int snap_begin_mut(struct heap_header *heap);

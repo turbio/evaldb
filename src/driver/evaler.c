@@ -166,6 +166,7 @@ void server_loop(struct heap_header *heap) {
   }
 }
 
+#ifndef USE_FUZZ_ENTRYPOINT
 int main(int argc, char *argv[]) {
   struct gengetopt_args_info args;
   cmdline_parser(argc, argv, &args);
@@ -232,6 +233,66 @@ int main(int argc, char *argv[]) {
 cleanup:
 
   cmdline_parser_free(&args);
+
+  return 0;
+}
+#endif
+
+int LLVMFuzzerTestOneInput(const uint8_t *d, size_t size) {
+  static unsigned long nth = 0;
+  nth++;
+
+  if (size == 0) {
+    return 0;
+  }
+
+  char path[1000] = {0};
+
+  sprintf(path, "db/example-%d-%lx", getpid(), nth);
+
+  struct heap_header *heap = snap_init(path);
+  assert(heap != NULL);
+  create_init(heap);
+
+  snap_commit(heap);
+
+  enum evaler_status status = 0;
+
+  size_t cur = 0;
+  while (cur < size) {
+    int parent_gen = heap->committed->gen;
+
+    snap_begin_mut(heap);
+
+    char str[size + 1 || 1];
+    for (size_t i = 0; i < size + 1; i++) {
+      str[i] = 0;
+    }
+
+    for (int i = 0; cur < size; i++, cur++) {
+      if (d[cur] == '\n') {
+        cur++;
+        break;
+      }
+
+      str[i] = d[cur];
+    }
+
+    json_t *interp_args = json_object();
+    json_t *result = do_eval(heap, str, interp_args, &status);
+
+    snap_commit(heap);
+
+    json_decref(result);
+    json_decref(interp_args);
+
+    if (status) {
+      snap_checkout(heap, parent_gen);
+    }
+  }
+
+  snap_close(heap);
+  unlink(path);
 
   return 0;
 }
