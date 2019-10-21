@@ -26,6 +26,8 @@
 #define generation snap_generation
 #define node snap_node
 
+#define DEBUG_LOGGING
+
 #ifdef DEBUG_ALL
 #define DEBUG_LOGGING
 #define LOG_MAP_MODS
@@ -56,6 +58,7 @@ struct table {
 
 struct runtime_state {
   char *db_path;
+  int db_fd;
   struct heap_header *heap;
   void *handling_segv;
 
@@ -502,23 +505,6 @@ enum address_in {
   ADDR_IN_META_DATA = 2,
 };
 
-int object_in_range(uintptr_t addr, size_t size) {
-  if (addr < (uintptr_t)H->map_start) {
-    return ADDR_IN_INVALID;
-  }
-
-  if (addr >= (uintptr_t)H->map_start + H->size) {
-    return ADDR_IN_INVALID;
-  }
-
-  if (addr + size <
-      (uintptr_t)H->map_start + (PAGE_SIZE * (INITIAL_PAGES / 2))) {
-    return ADDR_IN_META_DATA;
-  }
-
-  return ADDR_IN_USER_DATA;
-}
-
 enum walk_action {
   WALK_CONTINUE = 0,
   WALK_EXIT = 1,
@@ -533,9 +519,6 @@ int walk_nodes(struct node *n, int (*cb)(struct node *, void *), void *d) {
 
   if (n->type == SNAP_NODE_GENERATION) {
     struct generation *g = (struct generation *)n;
-    assert(
-        object_in_range((uintptr_t)g, sizeof(struct generation)) ==
-        ADDR_IN_META_DATA);
 
     for (int i = 0; i < GENERATION_CHILDREN; i++) {
       if (!g->c[i]) {
@@ -547,11 +530,9 @@ int walk_nodes(struct node *n, int (*cb)(struct node *, void *), void *d) {
       }
     }
   } else if (n->type == SNAP_NODE_PAGE) {
-    assert(
-        object_in_range((uintptr_t)n, sizeof(struct node)) ==
-        ADDR_IN_USER_DATA);
+    // eh
   } else {
-    assert(0 && "invalid node type while talking, probably walked off the end");
+    assert(0 && "invalid node type while walking, probably walked off the end");
   }
 
   return WALK_CONTINUE;
@@ -610,6 +591,8 @@ int open_db(const char *path, struct runtime_state *state) {
     return -1;
   }
 
+  rstate.db_fd = fd;
+
   LOG("mapping initial heap from %p-%p\n",
       MAP_START_ADDR,
       (void *)((char *)MAP_START_ADDR + PAGE_SIZE));
@@ -629,12 +612,12 @@ int open_db(const char *path, struct runtime_state *state) {
 
   struct heap_header *heap = (struct heap_header *)mem;
 
-  if (heap->v != 0xffca) {
+  if (heap->v != HEAP_VERSION) {
     fprintf(
         stderr,
         "got a bad snapshot, invalid magic seq 0x%x (expected) != 0x%x "
         "(actual)\n",
-        0xffca,
+        HEAP_VERSION,
         heap->v);
     return -1;
   }
@@ -686,7 +669,7 @@ int new_db(const char *path) {
 
   int err = ftruncate(fd, initial_size);
   if (err) {
-    fprintf(stderr, "could not increase db size  %s\n", strerror(errno));
+    fprintf(stderr, "could not alloc to initial size: %s\n", strerror(errno));
     return -1;
   }
 
@@ -704,14 +687,14 @@ int new_db(const char *path) {
 
   struct heap_header *heap = mem;
 
-  heap->v = 0xffca;
+  heap->v = HEAP_VERSION;
   heap->size = initial_size;
   heap->last_gen_index = 0;
   heap->page_size = PAGE_SIZE;
   heap->map_start = map_start;
 
   struct page *initial_page = heap->last_page =
-      (struct page *)((char *)mem + (PAGE_SIZE * (INITIAL_PAGES / 2)));
+      (struct page *)((char *)(mem) + (PAGE_SIZE * 2));
 
   *initial_page = (struct page){
       .i = {.type = SNAP_NODE_PAGE, .committed = 1},
@@ -721,7 +704,7 @@ int new_db(const char *path) {
   };
 
   struct generation *initial_gen = heap->last_gen =
-      (struct generation *)((char *)heap + sizeof(struct heap_header));
+      (struct generation *)((char *)(mem) + (PAGE_SIZE));
 
   *initial_gen = (struct generation){
       .i = {.type = SNAP_NODE_GENERATION, .committed = 1},
@@ -734,6 +717,7 @@ int new_db(const char *path) {
   heap->root = initial_gen;
 
   munmap(heap->map_start, initial_size);
+  close(fd);
 
   return 0;
 }
@@ -805,14 +789,14 @@ int pages_in_gen(struct node *n, void *d) {
   return WALK_CONTINUE;
 }
 
-void expand_heap(struct heap_header *heap, size_t min_expand) {
+void expand_heap_space(struct heap_header *heap, size_t min_expand) {
   size_t new_size = heap->size * 2;
 
   if (new_size - heap->size < min_expand * 2) {
     new_size = round_page_up(min_expand * 2);
   }
 
-  int err = truncate(rstate.db_path, new_size);
+  int err = ftruncate(rstate.db_fd, new_size);
   if (err) {
     fprintf(stderr, "could not increase db file size %s\n", strerror(errno));
     exit(1);
@@ -846,30 +830,42 @@ void expand_heap(struct heap_header *heap, size_t min_expand) {
   heap->size = new_size;
 }
 
-struct page *new_page(struct heap_header *heap, size_t pages) {
-  struct page *f = heap->last_page =
-      (struct page
-           *)((char *)heap->last_page + (heap->last_page->pages * PAGE_SIZE));
-
-  char *npage_end = (char *)f + (pages * PAGE_SIZE);
-  char *heap_end = (char *)heap->map_start + heap->size;
-
-  if (npage_end >= heap_end) {
-    expand_heap(heap, pages * PAGE_SIZE);
+// maybe_grow_heap takes an address we'd like to be inside the heap
+// and (if necessary) increases the heap size to include that address.
+void maybe_grow_heap(struct heap_header *h, void *addr) {
+  char *end = (char *)h->map_start + h->size;
+  if ((char *)addr < end) {
+    return;
   }
 
-  assert(npage_end < (char *)heap->map_start + heap->size);
+  expand_heap_space(h, end - (char *)addr);
+  assert((char *)addr < (char *)h->map_start + h->size);
+}
 
-  *f = (struct page){
+struct page *new_page(struct heap_header *h, size_t pages) {
+  struct page *next = NULL;
+
+  if ((char *)h->last_page > (char *)h->last_gen) {
+    next = h->last_page =
+        (struct page
+             *)((char *)h->last_page + (h->last_page->pages * PAGE_SIZE));
+    LOG("expanding page by growing %p\n", (void *)next);
+  } else {
+    next = h->last_page = (struct page *)round_page_up(
+        (uintptr_t)h->last_gen + sizeof(struct generation));
+    LOG("expanding page by jumping %p\n", (void *)next);
+  }
+
+  maybe_grow_heap(h, (char *)next + (pages * PAGE_SIZE));
+
+  *next = (struct page){
       .i = {.type = SNAP_NODE_PAGE, .committed = 0},
       .pages = pages,
       .len = 0,
-      .real_addr = f,
+      .real_addr = next,
   };
 
-  assert(object_in_range((uintptr_t)f, pages * PAGE_SIZE) == ADDR_IN_USER_DATA);
-
-  return f;
+  return next;
 }
 
 int set_committed(struct node *n, void *d) {
@@ -881,9 +877,6 @@ int set_committed(struct node *n, void *d) {
 }
 
 struct page *page_copy(struct heap_header *h, struct page *p) {
-  assert(
-      object_in_range((uintptr_t)p, p->pages * PAGE_SIZE) == ADDR_IN_USER_DATA);
-
   struct page *new = new_page(h, p->pages);
   memcpy(new, p, p->pages * PAGE_SIZE);
 
@@ -900,13 +893,6 @@ struct page *page_copy(struct heap_header *h, struct page *p) {
 // TODO(turbio): just do some remapping
 void page_swap(struct heap_header *heap, struct page *p1, struct page *p2) {
   full_verify(1);
-
-  assert(
-      object_in_range((uintptr_t)p1, p1->pages * PAGE_SIZE) ==
-      ADDR_IN_USER_DATA);
-  assert(
-      object_in_range((uintptr_t)p2, p2->pages * PAGE_SIZE) ==
-      ADDR_IN_USER_DATA);
 
   assert(p1->pages > 0);
   assert(p1->pages == p2->pages);
@@ -956,19 +942,46 @@ void page_swap(struct heap_header *heap, struct page *p1, struct page *p2) {
 }
 
 struct generation *new_gen(struct heap_header *h, int index) {
-  struct generation *new = ++h->last_gen;
+  uintptr_t last_page = round_page_down((uintptr_t)(h->last_gen));
+  uintptr_t next_page = round_page_down((uintptr_t)(h->last_gen + 2));
 
-  *new = (struct generation){
+  LOG("last p:%p next p:%p\n", (void *)last_page, (void *)next_page);
+
+  struct generation *next = NULL;
+
+  // the idea is once we have an object in any part of a page we own the entire
+  // page. When crossing page boundaries we need to check/alloc another page.
+  if (last_page == next_page) {
+    next = ++h->last_gen;
+    LOG("gen in same page, all good %p\n", (void *)next);
+  } else if ((char *)h->last_gen > (char *)h->last_page) {
+    // we were the last object grown, it's fine to just grow again.
+    // just gotta make sure the heap is big enough.
+
+    next = ++h->last_gen;
+    LOG("expanding gen by growing %p\n", (void *)next);
+  } else {
+    // we're crossing pages and the next page is owned by someone else!
+
+    char *nextp = (char *)h->last_page + (h->last_page->pages * PAGE_SIZE);
+
+    // sanity check page placement. They should always start at a physical
+    // page and extend to the end of all pages they occupy.
+    assert((uintptr_t)nextp == round_page_up((uintptr_t)nextp));
+
+    next = h->last_gen = (struct generation *)nextp;
+    LOG("expanding gen by jumping %p\n", (void *)next);
+  }
+
+  maybe_grow_heap(h, (char *)(next) + sizeof(struct generation));
+
+  *next = (struct generation){
       .i = {.type = SNAP_NODE_GENERATION, .committed = 0},
       .gen = index,
       .c = {0},
   };
 
-  assert(
-      object_in_range((uintptr_t) new, sizeof(struct generation)) ==
-      ADDR_IN_META_DATA);
-
-  return new;
+  return next;
 }
 
 // new_gen_between will free up space on a generation by creating a child and
@@ -1012,8 +1025,6 @@ void handle_segv(int signum, siginfo_t *i, void *d) {
     fprintf(stderr, "SEGFAULT trying to read %p\n", addr);
     exit(2);
   }
-
-  assert(object_in_range((uintptr_t)addr, 1) == ADDR_IN_USER_DATA);
 
   if (H->committed == H->working) {
     fprintf(stderr, "SEGFAULT write outside of mutation %p\n", addr);
@@ -1540,7 +1551,7 @@ void *snap_realloc(struct heap_header *heap, void *ptr, size_t size) {
   }
 
   void *result = _snap_malloc(heap, size);
-  memmove(result, ptr, size);
+  memcpy(result, ptr, size);
   _snap_free(heap, ptr);
 
 #ifdef SNAP_EVENT_LOG_FILE
@@ -1556,7 +1567,7 @@ void *snap_realloc(struct heap_header *heap, void *ptr, size_t size) {
   return result;
 }
 
-// cppcheck-suppress unusedFunction
+#ifdef FULL_VERIFY
 int segments_inside_pages(struct node *n, void *d) {
   if (n->type != SNAP_NODE_PAGE) {
     return WALK_CONTINUE;
@@ -1580,7 +1591,6 @@ int segments_inside_pages(struct node *n, void *d) {
   return WALK_CONTINUE;
 }
 
-// cppcheck-suppress unusedFunction
 int verify_all_committed(struct node *n, void *d) {
   if (!n->committed) {
     if (n->type == SNAP_NODE_GENERATION) {
@@ -1594,7 +1604,6 @@ int verify_all_committed(struct node *n, void *d) {
   return WALK_CONTINUE;
 }
 
-#ifdef FULL_VERIFY
 void full_verify(int committed) {
   if (committed == 1) {
     assert(H->working == H->committed && "expected to be committed");
