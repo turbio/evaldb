@@ -497,12 +497,6 @@ void merge_in_table(struct table newmaps) {
 #endif
 }
 
-enum address_in {
-  ADDR_IN_INVALID = -1,
-  ADDR_IN_USER_DATA = 1,
-  ADDR_IN_META_DATA = 2,
-};
-
 enum walk_action {
   WALK_CONTINUE = 0,
   WALK_EXIT = 1,
@@ -794,6 +788,8 @@ void expand_heap_space(struct heap_header *heap, size_t min_expand) {
     new_size = round_page_up(min_expand * 2);
   }
 
+  LOG("expanding db size %d, %lu", rstate.db_fd, new_size);
+
   int err = ftruncate(rstate.db_fd, new_size);
   if (err) {
     fprintf(stderr, "could not increase db file size %s\n", strerror(errno));
@@ -836,7 +832,7 @@ void maybe_grow_heap(struct heap_header *h, void *addr) {
     return;
   }
 
-  expand_heap_space(h, end - (char *)addr);
+  expand_heap_space(h, (char *)addr - end);
   assert((char *)addr < (char *)h->map_start + h->size);
 }
 
