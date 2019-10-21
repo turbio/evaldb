@@ -15,7 +15,9 @@ LDFLAGS    :=  $(shell pkg-config --libs jansson) -lm
 SRCS       := $(shell find $(SRCDIR) -type f -name "*.c")
 OBJS       := $(patsubst %.c,%.o,$(SRCS))
 
-CBINS      := luaval duktape memtest memgraph
+LANG_OBJS := src/driver/cmdline.o src/driver/evaler.o src/alloc.o
+
+CBINS      := luaval duktape memtest memgraph testcounter
 
 .PHONY: all clean test
 
@@ -58,10 +60,13 @@ clean:
 memgraph: src/alloc.o src/memgraph/main.o src/memgraph/cmdline.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
-luaval: src/driver/cmdline.o src/driver/evaler.o  src/alloc.o src/luaval/main.o ./vendor/lua-5.3.5/src/liblua.a
+luaval: $(LANG_OBJS) src/luaval/main.o ./vendor/lua-5.3.5/src/liblua.a
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(LUALDFLAGS) -o $@
 
-duktape: src/driver/cmdline.o src/driver/evaler.o src/alloc.o src/duktape/main.o ./vendor/duktape-2.3.0/src/duktape.o
+testcounter: $(LANG_OBJS) src/testcounter/main.o
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
+
+duktape: $(LANG_OBJS) src/duktape/main.o ./vendor/duktape-2.3.0/src/duktape.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(DUKTAPELDFLAGS) -o $@
 
 ./vendor/lua-5.3.5/src/liblua.a:
@@ -72,6 +77,9 @@ src/duktape/main.o: src/duktape/main.c
 
 src/luaval/main.o: src/luaval/main.c
 	$(CC) $(CFLAGS) $(LUACFLAGS) -o $@ -c $<
+
+src/testcounter/main.o: src/testcounter/main.c
+	$(CC) $(CFLAGS) -o $@ -c $<
 
 memtest: src/alloc.o src/memtest/main.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@

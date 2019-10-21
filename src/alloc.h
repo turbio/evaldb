@@ -6,17 +6,19 @@
 
 #define PAGE_SIZE sysconf(_SC_PAGESIZE)
 
-// should be at least two, half will be used for the initial generation
-// and the second half for the intial page.
+// must be at least 3.
+// first: struct heap_header
+// second: initial snap_generation
+// third: initial snap_page
 #define INITIAL_PAGES 16
-
-#define ALLOC_BLOCK_SIZE (INITIAL_PAGES * PAGE_SIZE)
 
 #define MAP_START_ADDR ((void *)0x100000000000)
 
 #define GENERATION_CHILDREN 16
 
 #define MAX_MAPS 65530
+
+#define HEAP_VERSION 0xffca
 
 struct heap_header {
   uint16_t v;
@@ -58,11 +60,14 @@ struct snap_generation {
 struct snap_page {
   struct snap_node i;
 
-  void *real_addr;
+  void *real_addr; // when a page is relocated (because of a write after commit)
+                   // the real address will refer to the location is originally
+                   // resided at.
 
-  int pages;
+  int pages; // the number of physical pages this page covers. This is only
+             // greater than 1 when allocing a size greater than one page.
+
   int len;
-
   struct snap_segment *c[]; // TODO(turbi): should be relative
 };
 

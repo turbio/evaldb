@@ -22,6 +22,8 @@ int n = 0;
 
 static struct gengetopt_args_info args;
 
+void print_node_connection(void *from, void *to);
+
 void print_segment(struct snap_segment *s) {
   printf("\"%p\" ", (void *)s);
   printf("[");
@@ -128,6 +130,58 @@ void print_tree_nodes(struct snap_node *n) {
   }
 }
 
+void *find_next_with_raddr(struct snap_generation *g, void *addr, int after) {
+  for (int i = 0; i < GENERATION_CHILDREN; i++) {
+    if (!g->c[i]) {
+      continue;
+    }
+
+    struct snap_node *n2 = g->c[i];
+    if (n2->type == SNAP_NODE_PAGE) {
+      struct snap_page *p = (struct snap_page *)n2;
+
+      if (p->real_addr == addr && g->gen > after) {
+        return p;
+      }
+
+      continue;
+    } else if (n2->type == SNAP_NODE_GENERATION) {
+      void *a = find_next_with_raddr((struct snap_generation *)n2, addr, after);
+      if (a) {
+        return a;
+      }
+    }
+  }
+
+  return NULL;
+}
+
+void print_node_history(
+    struct snap_generation *root, struct snap_generation *g) {
+  for (int i = 0; i < GENERATION_CHILDREN; i++) {
+    if (!g->c[i]) {
+      continue;
+    }
+
+    struct snap_node *n = g->c[i];
+
+    if (n->type == SNAP_NODE_PAGE) {
+      struct snap_page *p = (struct snap_page *)n;
+
+      if (p->real_addr != p) {
+        printf(
+            "\"%p\" -> \"%p\" ",
+            (void *)p,
+            find_next_with_raddr(root, p->real_addr, g->gen));
+        printf("[arrowsize=.25 color=\"#888888\"]\n");
+      }
+    } else if (n->type == SNAP_NODE_GENERATION) {
+      struct snap_generation *g = (struct snap_generation *)n;
+      print_node_history(root, g);
+    }
+  }
+}
+
 void render_tree(struct heap_header *heap) {
   printf("nodesep=0.0\n");
   printf("ranksep=0.1\n");
@@ -142,6 +196,10 @@ void render_tree(struct heap_header *heap) {
   printf("\"root\" -> \"%p\" [arrowsize=.25]\n", (void *)heap->root);
 
   print_tree_nodes((struct snap_node *)heap->root);
+
+  if (args.history_flag) {
+    print_node_history(heap->root, heap->root);
+  }
 }
 
 int main(int argc, char *argv[]) {

@@ -5,3 +5,4 @@ purpose "Generate a dot description of a snapalloc db"
 option "db" d "snapalloc db to use" string required
 option "labels" l "draw labels on nodes" flag off
 option "segments" s "draw segments inside pages" flag off
+option "history" i "draw links to ancestors" flag off

@@ -4,6 +4,7 @@
 /memtest
 /db
 /duktape
+/testcounter
 _db
 lua
 luac
