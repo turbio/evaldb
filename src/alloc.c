@@ -26,8 +26,6 @@
 #define generation snap_generation
 #define node snap_node
 
-#define DEBUG_LOGGING
-
 #ifdef DEBUG_ALL
 #define DEBUG_LOGGING
 #define LOG_MAP_MODS
