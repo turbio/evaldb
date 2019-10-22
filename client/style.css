@@ -32,6 +32,8 @@ button {
   border: solid 1px black;
   padding: 0.5em;
   background: white;
+  font-family: monospace;
+  font-size: 12px;
 }
 
 button {
@@ -136,6 +138,8 @@ button:hover {
   white-space: pre;
   padding: 0.5em;
   display: flex;
+  max-height: 10em;
+  overflow: auto;
 }
 
 .result::before {
@@ -162,6 +166,10 @@ button:hover {
 
 .error.entry::before {
   background: red;
+}
+
+.readonly.entry::before {
+  background: #0c0;
 }
 
 .entry.athead::before {
@@ -209,6 +217,8 @@ button:hover {
   text-decoration: underline;
   background: none;
   padding: 0;
+  margin: 0 0.125em;
+  border: none;
 }
 
 .as-code-box {

@@ -130,6 +130,11 @@ void server_loop(struct heap_header *heap) {
       return;
     }
 
+    int readonly = 0;
+
+    json_t *ronly = json_object_get(q, "readonly");
+    readonly = json_is_true(ronly);
+
     const char *code_str = json_string_value(code);
     enum evaler_status status;
 
@@ -148,6 +153,9 @@ void server_loop(struct heap_header *heap) {
     if (status) {
       snap_checkout(heap, parent_gen);
       json_object_set_new(qr, "error", result);
+    } else if (readonly) {
+      snap_checkout(heap, parent_gen);
+      json_object_set_new(qr, "object", result);
     } else {
       json_object_set_new(qr, "object", result);
     }

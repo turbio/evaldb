@@ -28,6 +28,7 @@ class Root extends React.Component {
       newQuery: {
         args: [],
         code: '',
+        readonly: false,
       },
     };
   }
@@ -73,14 +74,14 @@ class Root extends React.Component {
         ...gens,
         [t.result.gen]: t,
       },
-      head: head < t.id && !t.result.error ? t.id : head,
+      head: head < t.id && !t.result.error && !t.query.readonly ? t.id : head,
     });
   }
 
   doQuery() {
     const {
       head,
-      newQuery: { code, args: aargs },
+      newQuery: { code, args: aargs, readonly },
     } = this.state;
 
     const args = aargs.reduce((sum, c) => {
@@ -102,15 +103,16 @@ class Root extends React.Component {
       body: JSON.stringify({
         code,
         args,
+        readonly,
         // gen: head,
       }),
     })
       .then(res => res.json())
       .then(result => {
-        this.mergeInTransaction({ query: { args, code }, result });
+        this.mergeInTransaction({ query: { args, code, readonly }, result });
       });
 
-    this.setQuery({ code: '', args: [] });
+    this.setQuery({ code: '', args: [], readonly: false });
   }
 
   componentWillMount() {
@@ -182,6 +184,7 @@ class Input extends React.Component {
           'div',
           {
             className: 'query-box',
+            style: { position: 'relative' },
           },
           e(EditArgs, {
             args: this.props.newQuery.args,
@@ -216,6 +219,26 @@ class Input extends React.Component {
             },
           }),
           e('div', { className: 'func-head' }, funcSyntax.tail),
+          e(
+            'div',
+            {
+              style: {
+                position: 'absolute',
+                right: 0,
+                bottom: 0,
+                display: 'flex',
+                alignItems: 'center',
+              },
+            },
+            e('input', {
+              type: 'checkbox',
+              id: 'readonly-check',
+              value: this.props.newQuery.readonly,
+              onChange: e =>
+                this.props.setQuery({ readonly: e.target.checked }),
+            }),
+            e('label', { for: 'readonly-check' }, 'readonly'),
+          ),
         ),
         e(
           'button',
@@ -336,11 +359,16 @@ const InitialGen = () =>
 
 const Gen = ({
   result: { gen, parent, walltime, warn, error, object, warm },
-  query: { code, args },
+  query: { code, args, readonly },
 }) =>
   e(
     'div',
-    { className: 'entry' + (error ? ' error' : '') },
+    {
+      className:
+        'entry' +
+        (error ? ' error' : '') +
+        (!error && readonly ? ' readonly' : ''),
+    },
     e(
       'div',
       { className: 'query readonly' },
@@ -370,7 +398,9 @@ const Gen = ({
         walltime / 1e6 +
         'ms' +
         ' | ' +
-        (warm ? 'warm' : 'cold'),
+        (warm ? 'warm' : 'cold') +
+        ' | ' +
+        (readonly ? 'read' : 'write'),
       e(asCode, { code, args }),
     ),
     error

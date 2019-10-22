@@ -24,9 +24,10 @@ func init() {
 }
 
 type query struct {
-	Code string                 `json:"code"`
-	Args map[string]interface{} `json:"args"`
-	Gen  *int                   `json:"gen,omitempty"`
+	Code     string                 `json:"code"`
+	Args     map[string]interface{} `json:"args"`
+	Gen      *int                   `json:"gen,omitempty"`
+	Readonly bool                   `json:"readonly,omitempty"`
 }
 
 type queryResult struct {
