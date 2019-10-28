@@ -178,6 +178,7 @@ int main(int argc, char *argv[]) {
   struct gengetopt_args_info args;
   cmdline_parser(argc, argv, &args);
 
+  /*
   if (!args.noaslr_flag) {
     int pers = personality(0xffffffff);
     if (pers == -1) {
@@ -194,6 +195,7 @@ int main(int argc, char *argv[]) {
       execve("/proc/self/exe", argv, NULL);
     }
   }
+  */
 
   struct heap_header *heap = snap_init(args.db_arg);
   if (heap == NULL) {

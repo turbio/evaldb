@@ -60,14 +60,14 @@ clean:
 memgraph: src/alloc.o src/memgraph/main.o src/memgraph/cmdline.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
-luaval: $(LANG_OBJS) src/luaval/main.o ./vendor/lua-5.3.5/src/liblua.a
+luaval: $(LANG_OBJS) src/luaval/main.o lua.so
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(LUALDFLAGS) -o $@
 
 testcounter: $(LANG_OBJS) src/testcounter/main.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
-duktape: $(LANG_OBJS) src/duktape/main.o ./vendor/duktape-2.3.0/src/duktape.o
-	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(DUKTAPELDFLAGS) -o $@
+duktape: $(LANG_OBJS) src/duktape/main.o
+	$(CC) -Wl,--unresolved-symbols=ignore-in-object-files $(CFLAGS) $^ $(LDFLAGS) $(DUKTAPELDFLAGS) -o $@
 
 ./vendor/lua-5.3.5/src/liblua.a:
 	 cd ./vendor/lua-5.3.5 && $(MAKE) linux
@@ -86,3 +86,6 @@ memtest: src/alloc.o src/memtest/main.o
 
 %.o: %.c %.h src/config.h
 	$(CC) $(CFLAGS) -o $@ -c $<
+
+duktape.so: vendor/duktape-2.3.0/src/duktape.c vendor/duktape-2.3.0/src/duktape.h
+	gcc -fpic -shared $< -o duktape.so
