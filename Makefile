@@ -24,7 +24,7 @@ CBINS      := luaval duktape memtest memgraph testcounter
 all: $(CBINS) gateway
 
 test:
-	go test -v ./test
+	go test -mod=mod -v ./test
 
 # TODO(turbio): valgrind doesn't like our use fo mremap
 # valgrind:
@@ -47,7 +47,7 @@ clangtidy:
 	clang-tidy ./src/*.c ./src/*/*.c
 
 gateway: ./cmd/gateway/*
-	go build ./cmd/gateway
+	go build -mod=mod ./cmd/gateway
 
 gengetopt:
 	(cd src/driver && gengetopt < getopt)

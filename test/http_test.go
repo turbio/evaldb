@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -88,11 +89,30 @@ type query struct {
 	Seq  string `json:"seq"`
 }
 
-func makeQuery(q *query, db, lang string) (*queryResult, error) {
-	http.PostForm("http://localhost:5000/create", url.Values{
-		"name": {db},
+func makeDB(lang string) string {
+	c := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	res, err := c.PostForm("http://localhost:5000/create", url.Values{
 		"lang": {lang},
 	})
+	if err != nil {
+		panic(err)
+	}
+
+	if res.StatusCode != 302 {
+		s, _ := ioutil.ReadAll(res.Body)
+		fmt.Println(string(s))
+		panic(res.Status)
+	}
+
+	return strings.TrimPrefix(res.Header.Get("Location"), "/query/")
+}
+
+func makeQuery(q *query, db string) (*queryResult, error) {
 
 	qmarsh, _ := json.Marshal(q)
 
@@ -124,18 +144,22 @@ func makeQuery(q *query, db, lang string) (*queryResult, error) {
 }
 
 func TestSomeErrors(t *testing.T) {
-	result1, err := makeQuery(&query{Code: "asdf"}, "some_errs", "duktape")
+	db := makeDB("duktape")
+
+	result1, err := makeQuery(&query{Code: "asdf"}, db)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, result1.Error)
 
-	result2, err := makeQuery(&query{Code: "asdf"}, "some_errs", "duktape")
+	result2, err := makeQuery(&query{Code: "asdf"}, db)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, result2.Error)
 	assert.Equal(t, result1.Error, result2.Error)
 }
 
 func TestSuperSimpleExpression(t *testing.T) {
-	result, err := makeQuery(&query{Code: "return 1+1"}, "expr", "luaval")
+	db := makeDB("luaval")
+
+	result, err := makeQuery(&query{Code: "return 1+1"}, db)
 	assert.NoError(t, err)
 
 	assert.EqualValues(t, 2, result.Object)
@@ -143,60 +167,39 @@ func TestSuperSimpleExpression(t *testing.T) {
 }
 
 func TestCounting(t *testing.T) {
-	result, err := makeQuery(&query{Code: "counter = 0"}, "expr", "luaval")
+	db := makeDB("luaval")
+
+	result, err := makeQuery(&query{Code: "counter = 0"}, db)
 	assert.NoError(t, err)
 	assert.Empty(t, result.Error)
 	assert.Nil(t, result.Object)
 
 	for i := 1; i < 100; i++ {
-		result, err := makeQuery(&query{Code: "counter = counter + 1\nreturn counter"}, "expr", "luaval")
+		result, err := makeQuery(&query{Code: "counter = counter + 1\nreturn counter"}, db)
 		assert.NoError(t, err)
 		assert.Empty(t, result.Error)
 		assert.EqualValues(t, i, result.Object)
 	}
 }
 
-func TestNoLeadingUnderscore(t *testing.T) {
-	_, err := makeQuery(
-		&query{Code: "doesn't matter"},
-		"_start_with_under",
-		"luaval",
-	)
-	assert.Error(t, err)
-}
+func BenchmarkCountLua(b *testing.B) {
+	db := makeDB("luaval")
 
-func TestAllowInsideUnderscores(t *testing.T) {
-	_, err := makeQuery(
-		&query{Code: "doesn't matter"},
-		"start_with_under",
-		"luaval",
-	)
-	assert.NoError(t, err)
-}
-
-func TestNoTailingUnderscores(t *testing.T) {
-	_, err := makeQuery(
-		&query{Code: "doesn't matter"},
-		"start_with_under_",
-		"luaval",
-	)
-	assert.Error(t, err)
-}
-
-func TestNoSlashes(t *testing.T) {
-	_, err := makeQuery(
-		&query{Code: "doesn't matter"},
-		"start/with",
-		"luaval",
-	)
-	assert.Error(t, err)
-}
-
-func BenchmarkCount(b *testing.B) {
-	makeQuery(&query{Code: "counter = 0"}, "expr", "luaval")
+	makeQuery(&query{Code: "counter = 0"}, db)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		makeQuery(&query{Code: "counter = counter + 1\nreturn counter"}, "expr", "luaval")
+		makeQuery(&query{Code: "counter = counter + 1\nreturn counter"}, db)
+	}
+}
+
+func BenchmarkCountDuktape(b *testing.B) {
+	db := makeDB("duktape")
+
+	makeQuery(&query{Code: "counter = 0"}, db)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		makeQuery(&query{Code: "counter = counter + 1\nreturn counter"}, db)
 	}
 }

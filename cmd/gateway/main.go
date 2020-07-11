@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func init() {
@@ -56,7 +58,7 @@ type evaler struct {
 var evalers = []*evaler{}
 var elock = sync.RWMutex{}
 
-var dbpath string
+var userDBsPath string
 
 func newEvaler(db string) (*evaler, error) {
 	evalerName, err := dbEvaler(db)
@@ -64,7 +66,7 @@ func newEvaler(db string) (*evaler, error) {
 		return nil, err
 	}
 
-	cmd := exec.Command("./"+evalerName, "-d", path.Join(dbpath, db), "-s")
+	cmd := exec.Command("./"+evalerName, "-d", path.Join(userDBsPath, db), "-s")
 	cmd.Stderr = os.Stderr
 
 	stdin, err := cmd.StdinPipe()
@@ -166,11 +168,11 @@ func memgraph(w http.ResponseWriter, r *http.Request) {
 
 	db := r.URL.Query().Get("db")
 
-	if db == "" || !validName(db) {
+	if db == "" {
 		return
 	}
 
-	grapher := exec.Command("./memgraph", "-d", path.Join(dbpath, db))
+	grapher := exec.Command("./memgraph", "-d", path.Join(userDBsPath, db))
 
 	if r.URL.Query().Get("labels") != "" {
 		grapher.Args = append(grapher.Args, "-l")
@@ -189,24 +191,28 @@ func memgraph(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Println(err)
 		w.WriteHeader(500)
+		return
 	}
 
 	err = renderer.Start()
 	if err != nil {
 		log.Println(err)
 		w.WriteHeader(500)
+		return
 	}
 
 	err = grapher.Wait()
 	if err != nil {
 		log.Println(err)
 		w.WriteHeader(500)
+		return
 	}
 
 	err = renderer.Wait()
 	if err != nil {
 		log.Println(err)
 		w.WriteHeader(500)
+		return
 	}
 }
 
@@ -314,10 +320,15 @@ func eval(w http.ResponseWriter, r *http.Request) {
 		<-ran
 
 		result = queryResult{
-			Error: "execution timed out after 5 seconds",
+			Parent: 0,
+			Gen:    -1,
+			Error:  "execution timed out after 5 seconds",
 		}
 	case <-ran:
 		if err := json.Unmarshal(buff, &result); err != nil {
+			result.Parent = 0
+			result.Gen = -1
+
 			result.Error = fmt.Sprintf(
 				"evaler send a bad response:\n%v\ngot: %#v",
 				err,
@@ -347,30 +358,6 @@ func eval(w http.ResponseWriter, r *http.Request) {
 	w.Write(remarsh)
 }
 
-func validName(str string) bool {
-	if len(str) < 2 {
-		return false
-	}
-
-	if len(str) > 256 {
-		return false
-	}
-
-	for i, c := range str {
-		if c == '_' && i != 0 && i != len(str)-1 {
-			continue
-		}
-
-		if (c < 'a' || c > 'z') &&
-			(c < 'A' || c > 'Z') &&
-			(c < '0' || c > '9') {
-			return false
-		}
-	}
-
-	return true
-}
-
 func create(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
 	if err != nil {
@@ -378,12 +365,12 @@ func create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := r.FormValue("name")
 	lang := r.FormValue("lang")
 
+	name := uuid.New().String()
+
 	if hasDB(name) {
-		http.Redirect(w, r, "/query/"+name, http.StatusFound)
-		return
+		panic("wut?")
 	}
 
 	if len(name) < 2 {
@@ -395,17 +382,8 @@ func create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !validName(name) {
-		http.Error(
-			w,
-			"name must be alphanumeric with underscores",
-			http.StatusBadRequest,
-		)
-		return
-	}
-
 	if lang == "" {
-		http.Redirect(w, r, "/create/"+name, http.StatusFound)
+		http.Error(w, "not sure about that language", http.StatusBadRequest)
 		return
 	}
 
@@ -428,28 +406,27 @@ func create(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/query/"+name, http.StatusFound)
 }
 
-var queryTmpl = template.Must(template.ParseFiles("./client/query.html"))
-
 func queryPage(w http.ResponseWriter, r *http.Request) {
-	name := path.Base(r.URL.Path)
+	dbname := strings.TrimPrefix(r.URL.Path, "/query/")
 
-	if !hasDB(name) {
-		http.NotFound(w, r)
+	if !hasDB(dbname) {
+		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 
-	lang, err := dbEvaler(name)
+	lang, err := dbEvaler(dbname)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "not found", http.StatusInternalServerError)
 		return
 	}
 
-	err = queryTmpl.Execute(w, struct {
-		Name string
+	var indexTmpl = template.Must(template.ParseFiles("./client/query.html"))
+	err = indexTmpl.Execute(w, struct {
 		Lang string
+		Name string
 	}{
-		Name: name,
 		Lang: lang,
+		Name: dbname,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -464,7 +441,7 @@ func main() {
 	flag.Parse()
 
 	openDB(path.Join(*dp, "__meta"))
-	dbpath = *dp
+	userDBsPath = path.Join(*dp, "dbs")
 
 	http.HandleFunc("/create", create)
 
@@ -472,8 +449,8 @@ func main() {
 
 	http.HandleFunc("/eval/", eval)
 	http.HandleFunc("/tail/", tail)
-	http.HandleFunc("/query/", queryPage)
 
+	http.HandleFunc("/query/", queryPage)
 	http.Handle("/", http.FileServer(http.Dir("./client")))
 
 	fmt.Println(strings.Repeat("=", 50))

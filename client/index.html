@@ -1,49 +1,41 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="utf-8" />
   <title>evaldb</title>
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="manifest" href="/site.webmanifest">
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="/style.css" type="text/css" media="all">
-</head>
 
+  <script src="https://unpkg.com/react@16/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@16/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/highlight.min.js"></script>
+</head>
 <body>
   <div class="headbar">
-    evaldb
+    <span>EvalDB</span>
+    <span style="color: #aaa; padding-left: 1em; font-style: italic;">use your favorite language as a database</span>
   </div>
-  <div class="create-db">
-    <h1>Create a Database?</h1>
+
+  <div class="blocks">
+    <h1>EvalDB</h1>
+    <p>A database that speaks your favorite language.</p>
     <form action="/create" method="POST">
-      <label for="db-name">name:</label>
-      <input
-        type="text"
-        name="name"
-        placeholder="db name (keep this secret)"
-        id="db-name"
-        style="width: 20em; max-width: 50vw"
-      />
-      <select name="lang">
-        <option value="luaval">Lua (PUC)</option>
-        <option value="duktape">Javascript (duktape)</option>
-      </select>
-      <input type="submit" value="go" />
+      <input type="hidden" name="lang" value="luaval" />
+      <input type="submit" value="Create a Lua database"/>
     </form>
+    <br/>
+    <form action="/create" method="POST">
+      <input type="hidden" name="lang" value="duktape" />
+      <input type="submit" value="Create a Javascript database"/>
+    </form>
+    <br/>
+    <input type="submit" style="background: lightgrey; color: black" value="Create a Python database" /> (coming soon)
   </div>
-  <script>
-    function makeid(len) {
-      var chs = "abcdefghijklmnopqrstuvwxyz0123456789";
-      var text = "";
-
-      for (var i = 0; i < len; i++) {
-        text += chs.charAt(Math.floor(Math.random() * chs.length));
-      }
-
-      return text;
-    }
-
-    document.getElementById("db-name").value = 'mycooldb_' + makeid(16);
-  </script>
 </body>
-
 </html>

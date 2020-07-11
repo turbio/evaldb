@@ -1,35 +1,157 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="utf-8" />
   <title>evaldb</title>
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="manifest" href="/site.webmanifest">
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="/style.css" type="text/css" media="all">
-</head>
-
-<body>
-  <div class="headbar">
-    <span>db:</span>
-    <span class="headbar-dbname">{{ .Name }}</span>
-    <span class="headbar-dbname" id="headbar-lang"></span>
-  </div>
-
-  <script>
-    var dbname = "{{ .Name }}";
-    var lang = "{{ .Lang }}";
-
-    document.getElementById('headbar-lang').innerText = {
-      'duktape': 'javascript',
-      'luaval': 'lua',
-    }[lang];
-  </script>
-
-  <div id="timeline" class="timeline"></div>
 
   <script src="https://unpkg.com/react@16/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@16/umd/react-dom.production.min.js" crossorigin></script>
-  <script src="/query.min.js" charset="utf-8"></script>
-</body>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/highlight.min.js"></script>
+</head>
+<body>
+  <div class="headbar">
+    <span>EvalDB</span>
+    <span style="color: #aaa; padding-left: 1em; font-style: italic;">use your favorite language as a database</span>
+  </div>
 
+  <div class="blocks">
+    <h1>Here's your <span class="subst-dblang"></span> database</h1>
+    <form action="/create" method="POST">
+      <div>
+        <label for="db-name">key:</label>
+        <input
+          type="text"
+          name="name"
+          value="..."
+          placeholder="db name (keep this secret)"
+          id="db-name"
+          style="width: 20em; height: 2.5em"
+          readonly
+        />
+        (keep this secret)
+      </div>
+    </form>
+  </div>
+
+  <br/>
+
+  <div class="blocks">
+    <script>
+function select_snippet(clang) {
+  document.querySelector('.snippet.active').classList.remove('active');
+  document.querySelector('.snp-btn.active').classList.remove('active');
+
+  document.querySelector(`#${clang}-snp-btn`).classList.add('active');
+  document.querySelector(`#${clang}-snippet`).classList.add('active');
+}
+    </script>
+
+    <button onclick="select_snippet('python')" id="python-snp-btn" class="snp-btn active">Python</button>
+    <button onclick="select_snippet('nodejs')" id="nodejs-snp-btn" class="snp-btn">Nodejs</button>
+    <button onclick="select_snippet('curl')" id="curl-snp-btn" class="snp-btn">Curl</button>
+
+    <div class="sep"></div>
+
+    <div id="python-snippet" class="snippet active">
+      <pre><code class="lang-bash">pip install evaldb</code></pre>
+      <pre><code class="lang-python">from evaldb import DB
+
+db = DB('<span class="subst-dbname">...</span>')
+
+db.write('my_variable = data', data=5)
+
+db.read('return my_variable') # -> 5
+
+db.write('''
+  my_variable = my_variable + 1
+  return my_variable
+''') # -> 6
+
+db.read('return my_variable') # -> 6</code></pre>
+    </div>
+
+    <div id="nodejs-snippet" class="snippet">
+      <pre><code class="lang-bash">npm install --save evaldb</code></pre>
+      <pre><code class="lang-javascript">const evaldb = require('evaldb');
+
+(async () => {
+  const db = await evaldb('<span class="subst-dbname">...</span>');
+
+  await db.write('my_variable = data', { data: 5 });
+
+  await db.read('return my_variable'); // -> 5
+
+  await db.write(`
+    my_variable = my_variable + 1
+    return my_variable
+  `); // -> 6
+
+  await db.read('return my_variable'); // -> 6
+})();</code></pre>
+    </div>
+
+
+    <div id="curl-snippet" class="snippet">
+      <pre><code class="lang-bash">curl 'https://evaldb.turb.io/eval/<span class="subst-dbname">...</span>' \
+    -H 'Content-Type: application/json' \
+    -d '{"code":"my_variable = data", "args":{"data":5}}'
+# -> {"object": null}
+
+curl 'https://evaldb.turb.io/eval/<span class="subst-dbname">...</span>' \
+    -H 'Content-Type: application/json' \
+    -d '{"code":"return my_variable", "readonly":true}'
+# -> {"object": 5}
+
+curl 'https://evaldb.turb.io/eval/<span class="subst-dbname">...</span>' \
+    -H 'Content-Type: application/json' \
+    -d '{"code":"my_variable = my_variable + 1"}'
+# -> {"object": null}
+
+curl 'https://evaldb.turb.io/eval/<span class="subst-dbname">...</span>' \
+    -H 'Content-Type: application/json' \
+    -d '{"code":"return my_variable", "readonly":true}'
+# -> {"object": 6}
+
+curl 'https://evaldb.turb.io/eval/<span class="subst-dbname">...</span>' \
+    -H 'Content-Type: application/json' \
+    -d '{"code":"an error"}'
+# -> {"object":null,"error":"[string \"eval\"]:1: syntax error near 'error'"}</code></pre>
+    </div>
+    <script>hljs.initHighlightingOnLoad();</script>
+  </div>
+
+  <div class="blocks">
+    <h1>Try querying it</h1>
+    <div class="sep"></div>
+    <div id="query" class="timeline"></div>
+  </div>
+
+  <script>
+if (location.hash) {
+}
+
+var lang = "{{.Lang}}";
+var langNames = {
+  duktape: 'Javascript',
+  luaval: 'Lua',
+};
+
+var dbname = "{{.Name}}"
+
+document.getElementById('db-name').value = dbname;
+[...document.getElementsByClassName('subst-dbname')].forEach(e => e.textContent = dbname);
+[...document.getElementsByClassName('subst-dblang')].forEach(e => e.textContent = langNames[lang]);
+  </script>
+
+  <script src="/query.js" charset="utf-8"></script>
+  <script>ReactDOM.render(e(Query), document.querySelector('#query'));</script>
+</body>
 </html>

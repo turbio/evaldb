@@ -1,23 +1,24 @@
 'use strict';
 
 const e = React.createElement;
+const frag = React.Fragment;
 
 const funcSyntax = {
   luaval: {
     headOpen: `function(`,
     headClose: `)`,
     tail: 'end',
-    placeholder: '-- your code here',
+    placeholder: '-- enter your query here',
   },
   duktape: {
     headOpen: `function(`,
     headClose: `) {`,
     tail: '}',
-    placeholder: '// your code here',
+    placeholder: '// enter your query here',
   },
 }[lang];
 
-class Root extends React.Component {
+class Query extends React.Component {
   constructor(props) {
     super(props);
     this.state = {
@@ -28,7 +29,6 @@ class Root extends React.Component {
       newQuery: {
         args: [],
         code: '',
-        readonly: false,
       },
     };
   }
@@ -78,10 +78,10 @@ class Root extends React.Component {
     });
   }
 
-  doQuery() {
+  doQuery = readonly => {
     const {
       head,
-      newQuery: { code, args: aargs, readonly },
+      newQuery: { code, args: aargs },
     } = this.state;
 
     const args = aargs.reduce((sum, c) => {
@@ -112,8 +112,8 @@ class Root extends React.Component {
         this.mergeInTransaction({ query: { args, code, readonly }, result });
       });
 
-    this.setQuery({ code: '', args: [], readonly: false });
-  }
+    this.setQuery({ code: '', args: [] });
+  };
 
   componentWillMount() {
     const es = new EventSource('/tail/' + dbname);
@@ -171,6 +171,11 @@ class Input extends React.Component {
   }
 
   render() {
+    const { doQuery } = this.props;
+
+    const doread = () => doQuery(true);
+    const dowrite = () => doQuery(false);
+
     return e(
       'div',
       {
@@ -192,7 +197,7 @@ class Input extends React.Component {
           }),
           e('textarea', {
             className: 'query-code',
-            rows: 1,
+            rows: 2,
             key: 'query',
             placeholder: funcSyntax.placeholder,
             ref: textarea => {
@@ -214,41 +219,30 @@ class Input extends React.Component {
             },
             onKeyPress: e => {
               if (e.key === 'Enter' && e.ctrlKey) {
-                this.props.doQuery();
+                dowrite();
               }
             },
           }),
           e('div', { className: 'func-head' }, funcSyntax.tail),
-          e(
-            'div',
-            {
-              style: {
-                position: 'absolute',
-                right: 0,
-                bottom: 0,
-                display: 'flex',
-                alignItems: 'center',
-              },
+          e('div', {
+            style: {
+              position: 'absolute',
+              right: 0,
+              bottom: 0,
+              display: 'flex',
+              alignItems: 'center',
             },
-            e('input', {
-              type: 'checkbox',
-              id: 'readonly-check',
-              value: this.props.newQuery.readonly,
-              onChange: e =>
-                this.props.setQuery({ readonly: e.target.checked }),
-            }),
-            e('label', { for: 'readonly-check' }, 'readonly'),
-          ),
+          }),
         ),
         e(
-          'button',
-          {
-            className: 'go-query',
-            onClick: () => {
-              this.props.doQuery();
-            },
-          },
-          '\xA0go\xA0',
+          'div',
+          { className: 'q-buttons' },
+          e('button', { className: 'read-btn q-btn', onClick: doread }, 'read'),
+          e(
+            'button',
+            { className: 'write-btn q-btn', onClick: dowrite },
+            'write',
+          ),
         ),
       ),
     );
@@ -495,6 +489,3 @@ class asCode extends React.Component {
     ];
   }
 }
-
-const dom = document.querySelector('#timeline');
-ReactDOM.render(e(Root), dom);

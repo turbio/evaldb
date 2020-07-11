@@ -1,0 +1,12 @@
+{
+  "name": "evaldb",
+  "version": "0.0.4",
+  "description": "nodejs client for evaldb (evaldb.turb.io)",
+  "main": "index.js",
+  "scripts": {},
+  "author": "turbio",
+  "license": "MIT",
+  "dependencies": {
+    "node-fetch": "^2.6.0"
+  }
+}
