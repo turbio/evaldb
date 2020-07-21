@@ -11,7 +11,6 @@ WORKDIR /go/src/github.com/turbio/evaldb
 
 COPY . .
 
-RUN go get ./cmd/gateway
 RUN make
 
 RUN mkdir /db
