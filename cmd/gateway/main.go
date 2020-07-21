@@ -32,6 +32,10 @@ type query struct {
 	Readonly bool                   `json:"readonly,omitempty"`
 }
 
+func (q *query) String() string {
+	return fmt.Sprintf("%#v (%#v)", q.Code, q.Args)
+}
+
 type queryResult struct {
 	Object   interface{} `json:"object"`
 	Error    interface{} `json:"error,omitempty"`
@@ -47,10 +51,12 @@ type transac struct {
 }
 
 type evaler struct {
-	db   string
-	proc *os.Process
-	in   io.Writer
-	out  io.Reader
+	db string
+
+	in  io.Writer
+	out io.Reader
+
+	cmd *exec.Cmd
 
 	sync.Mutex
 }
@@ -87,7 +93,7 @@ func newEvaler(db string) (*evaler, error) {
 	return &evaler{
 		Mutex: sync.Mutex{},
 		db:    db,
-		proc:  cmd.Process,
+		cmd:   cmd,
 		in:    stdin,
 		out:   stdout,
 	}, nil
@@ -121,10 +127,21 @@ func (e *evaler) release() {
 	e.Unlock()
 }
 
-func must(err error) {
-	if err != nil {
-		log.Panicln(err)
+func (e *evaler) timeout() {
+	e.cmd.Process.Kill()
+	e.cmd.Wait()
+
+	elock.Lock()
+	defer elock.Unlock()
+	for i, ev := range evalers {
+		if ev.db == e.db {
+			evalers[i] = evalers[len(evalers)-1]
+			evalers = evalers[:len(evalers)-1]
+			return
+		}
 	}
+
+	panic("oh nos")
 }
 
 const MaxRequestSize = 4096
@@ -218,6 +235,7 @@ func memgraph(w http.ResponseWriter, r *http.Request) {
 
 func tail(w http.ResponseWriter, r *http.Request) {
 	target := strings.TrimPrefix(r.URL.Path, "/tail/")
+	log.Println(target, "tailing")
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	f := w.(http.Flusher)
@@ -227,6 +245,7 @@ func tail(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		err := tailDB(target, ch)
 		if err != nil {
+			log.Println(target, "tail error", err)
 			http.Error(w, "oh no", http.StatusBadRequest)
 		}
 	}()
@@ -238,6 +257,7 @@ func tail(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-ctx.Done():
+			log.Println(target, "tail done")
 			return
 		case t := <-ch:
 			data, _ := json.Marshal(t)
@@ -245,6 +265,7 @@ func tail(w http.ResponseWriter, r *http.Request) {
 				"event: transac\ndata: " + string(data) + "\n\n",
 			))
 			if err != nil {
+				log.Println(target, "tail write err", err)
 				return
 			}
 
@@ -277,11 +298,14 @@ func eval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
 	defer cancel()
+
+	log.Println(dbname, "evaling", q)
 
 	e, fresh, err := acquireEvaler(dbname)
 	if err != nil {
+		log.Println(dbname, "unable to acquire", err)
 		panic(err)
 	}
 
@@ -316,7 +340,9 @@ func eval(w http.ResponseWriter, r *http.Request) {
 
 	select {
 	case <-ctx.Done():
-		e.proc.Kill()
+		log.Println(dbname, "execution timed out", err)
+
+		e.timeout()
 		<-ran
 
 		result = queryResult{
@@ -328,6 +354,8 @@ func eval(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(buff, &result); err != nil {
 			result.Parent = 0
 			result.Gen = -1
+
+			log.Printf("%s unable to unmarshal res: %v %#v", dbname, err, string(buff))
 
 			result.Error = fmt.Sprintf(
 				"evaler send a bad response:\n%v\ngot: %#v",
@@ -361,6 +389,7 @@ func eval(w http.ResponseWriter, r *http.Request) {
 func create(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
 	if err != nil {
+		log.Println("unable to parse create", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -373,21 +402,13 @@ func create(w http.ResponseWriter, r *http.Request) {
 		panic("wut?")
 	}
 
-	if len(name) < 2 {
-		http.Error(
-			w,
-			"name must be at least 2 characters",
-			http.StatusBadRequest,
-		)
-		return
-	}
-
 	if lang == "" {
 		http.Error(w, "not sure about that language", http.StatusBadRequest)
 		return
 	}
 
 	if lang != "luaval" && lang != "duktape" {
+		log.Println(name, "unexpected language", lang)
 		http.Error(w, "invalid language", http.StatusBadRequest)
 		return
 	}
@@ -395,19 +416,25 @@ func create(w http.ResponseWriter, r *http.Request) {
 	err = createDB(name, lang)
 	if err != nil {
 		if err == errDBExists {
+			log.Println(name, "db exists, weird", err)
 			http.Redirect(w, r, "/query/"+name, http.StatusFound)
 			return
 		}
 
+		log.Println(name, "unable to create db", err)
+
 		http.Error(w, "oh no", http.StatusInternalServerError)
 		return
 	}
+
+	log.Println(name, "created", lang, "db")
 
 	http.Redirect(w, r, "/query/"+name, http.StatusFound)
 }
 
 func queryPage(w http.ResponseWriter, r *http.Request) {
 	dbname := strings.TrimPrefix(r.URL.Path, "/query/")
+	log.Println(dbname, "get query page")
 
 	if !hasDB(dbname) {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -453,7 +480,6 @@ func main() {
 	http.HandleFunc("/query/", queryPage)
 	http.Handle("/", http.FileServer(http.Dir("./client")))
 
-	fmt.Println(strings.Repeat("=", 50))
 	log.Println("http on :" + *port)
 	log.Fatalln(http.ListenAndServe(":"+*port, nil))
 }
