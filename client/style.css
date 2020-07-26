@@ -471,9 +471,17 @@ code {
   padding-top: 1em;
 }
 
-.blocks {
-  margin: 0 auto;
-  max-width: 600px;
+@media only screen and (min-width: 700px) {
+  .blocks {
+    margin: 0 auto;
+    max-width: 600px;
+  }
+}
+
+@media only screen and (max-width: 700px) {
+  .blocks {
+    margin: 0 2em;
+  }
 }
 
 .timeline {

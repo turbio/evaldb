@@ -178,15 +178,10 @@ func openDB(path string) {
 
 		dbb.ForEach(func(k []byte, v []byte) error {
 			d := dbb.Bucket(k)
-			log.Printf("%s:", k)
-
 			d.ForEach(func(k []byte, v []byte) error {
-				log.Printf("\t%s: %s", k, v)
-
 				if string(k) == "logs" {
 					bb := d.Bucket(k)
 					bb.ForEach(func(k []byte, v []byte) error {
-						log.Printf("\t%s: %s", k, v)
 						return nil
 					})
 				}
