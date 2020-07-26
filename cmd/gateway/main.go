@@ -340,7 +340,7 @@ func eval(w http.ResponseWriter, r *http.Request) {
 
 	select {
 	case <-ctx.Done():
-		log.Println(dbname, "execution timed out", err)
+		log.Println(dbname, "execution timed out", err, q)
 
 		e.timeout()
 		<-ran
@@ -348,7 +348,7 @@ func eval(w http.ResponseWriter, r *http.Request) {
 		result = queryResult{
 			Parent: 0,
 			Gen:    -1,
-			Error:  "execution timed out after 5 seconds",
+			Error:  "execution timed out",
 		}
 	case <-ran:
 		if err := json.Unmarshal(buff, &result); err != nil {
