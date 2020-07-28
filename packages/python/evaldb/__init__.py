@@ -1,31 +1,36 @@
 import requests
 
+
 class QueryException(Exception):
-  pass
+    pass
+
 
 class DB():
-  def __init__(self, key=None):
-    self.key = key
+    def __init__(self, key=None):
+        if type(key) != str:
+            raise TypeError("EvalDB key must be a string")
 
-  def read(self, query, **args):
-    return self.query(query, args, True)
+        self.key = key
 
-  def write(self, query, **args):
-    return self.query(query, args, False)
+    def read(self, query, **args):
+        return self.query(query, args, True)
 
-  def query(self, query, args, readonly=False):
-    httpres = requests.post(
-      'https://evaldb.turb.io/eval/' + self.key,
-      json={
-        'code': query,
-        'readonly': readonly,
-        'args': args,
-      },
-    )
+    def write(self, query, **args):
+        return self.query(query, args, False)
 
-    dbres = httpres.json()
+    def query(self, query, args, readonly=False):
+        httpres = requests.post(
+            'https://evaldb.turb.io/eval/' + self.key,
+            json={
+                'code': query,
+                'readonly': readonly,
+                'args': args,
+            },
+        )
 
-    if 'error' in dbres:
-      raise QueryException(dbres['error'])
+        dbres = httpres.json()
 
-    return dbres['object']
+        if 'error' in dbres:
+            raise QueryException(dbres['error'])
+
+        return dbres['object']

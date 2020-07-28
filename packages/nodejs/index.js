@@ -1,6 +1,10 @@
 const fetch = require('node-fetch');
 
-function connect(key) {
+async function connect(key) {
+  if (typeof key !== 'string') {
+    throw new Error('EvalDB expected key to be a string');
+  }
+
   async function query(code, args, readonly = true) {
     if (typeof code !== 'string') {
       throw new Error('expected query code to be a string');

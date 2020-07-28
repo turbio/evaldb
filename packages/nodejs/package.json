@@ -1,6 +1,6 @@
 {
   "name": "evaldb",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "nodejs client for evaldb (evaldb.turb.io)",
   "main": "index.js",
   "scripts": {},
