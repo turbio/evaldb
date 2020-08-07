@@ -1,4 +1,6 @@
 language: go
+go:
+  - 1.14
 script:
   - go get -v -t ./...
   - sudo apt-get update

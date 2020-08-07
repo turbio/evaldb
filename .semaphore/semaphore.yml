@@ -26,7 +26,7 @@ blocks:
           commands:
             - checkout
             - install-package libjansson-dev clang
-            - change-go-version 1.11
+            - change-go-version 1.14
             - go get -v -d -t ./...
             - make
             - make test
