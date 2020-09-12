@@ -1,4 +1,4 @@
-# evalDB
+# EvalDB
 
 Use your favorite language as a database.
 
@@ -35,7 +35,7 @@ privileges:
 Once your server is up and running you can now visit `http://localhost:5000`
 for a fancy web UI.
 
-Interacting with evalDB through the gateway:
+Interacting with EvalDB through the gateway:
 
 #### Creating a new database:
 
