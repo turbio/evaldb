@@ -467,10 +467,6 @@ code {
   color: white;
 }
 
-.initial-msg {
-  padding-top: 1em;
-}
-
 @media only screen and (min-width: 700px) {
   .blocks {
     margin: 0 auto;
@@ -491,7 +487,7 @@ code {
 }
 
 .timeline.fork {
-  padding-top: 1em;
+  padding-bottom: 1em;
 }
 
 .timeline:not(.fork) {
@@ -505,11 +501,15 @@ code {
   right: 0;
   width: 13px;
   border-top: 1px solid black;
-  top: 0;
+  bottom: 0;
 }
 
 .entry {
-  margin-bottom: 1em;
+  margin-top: 1em;
+}
+
+.initial-msg {
+  padding-bottom: 1em;
 }
 
 .result {

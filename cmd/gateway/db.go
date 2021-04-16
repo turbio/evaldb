@@ -14,6 +14,9 @@ var errDBExists = errors.New("db already exists")
 var errDBNotExists = errors.New("db does not exist")
 
 var dbsBucket = []byte("dbs")
+var linksBucket = []byte("links")
+var d2hBucket = []byte("d2h")
+var h2dBucket = []byte("h2d")
 
 var db *bolt.DB
 
@@ -125,6 +128,79 @@ func createDB(dbid, lang string) error {
 	})
 }
 
+func dbForLink(host string) (string, error) {
+	dbname := ""
+
+	err := db.View(func(tx *bolt.Tx) error {
+		links := tx.Bucket(linksBucket)
+		if links == nil {
+			panic("ohno")
+		}
+
+		h2d := links.Bucket([]byte("h2d"))
+		if h2d == nil {
+			panic("ohno")
+		}
+
+		dbid := h2d.Get([]byte(host))
+		if dbid == nil {
+			return errDBNotExists
+		}
+
+		dbname = string(dbid)
+
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return dbname, nil
+}
+
+func linkForDB(dbid string) (string, error) {
+	host := ""
+
+	err := db.View(func(tx *bolt.Tx) error {
+		host = string(tx.Bucket(linksBucket).Bucket(d2hBucket).Get([]byte(dbid)))
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return host, nil
+}
+
+func setLink(dbid, host string) error {
+	return db.Update(func(tx *bolt.Tx) error {
+		dbb := tx.Bucket(dbsBucket).Bucket([]byte(dbid))
+		if dbb == nil {
+			return errDBNotExists
+		}
+
+		existing := tx.Bucket(linksBucket).Bucket(d2hBucket).Get([]byte(dbid))
+		if existing != nil {
+			tx.Bucket(linksBucket).Bucket(d2hBucket).Delete([]byte(dbid))
+			tx.Bucket(linksBucket).Bucket(h2dBucket).Delete([]byte(existing))
+		}
+
+		if host == "" {
+			return nil
+		}
+
+		if err := tx.Bucket(linksBucket).Bucket(d2hBucket).Put([]byte(dbid), []byte(host)); err != nil {
+			return err
+		}
+
+		if err := tx.Bucket(linksBucket).Bucket(h2dBucket).Put([]byte(host), []byte(dbid)); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
 func logTransac(dbid string, t *transac) error {
 	err := db.Update(func(tx *bolt.Tx) error {
 		dbb := tx.Bucket(dbsBucket).Bucket([]byte(dbid))
@@ -171,9 +247,23 @@ func openDB(path string) {
 	}
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		dbb, errr := tx.CreateBucketIfNotExists(dbsBucket)
-		if errr != nil {
-			return errr
+
+		dbb, err := tx.CreateBucketIfNotExists(dbsBucket)
+		if err != nil {
+			return err
+		}
+
+		links, err := tx.CreateBucketIfNotExists(linksBucket)
+		if err != nil {
+			return err
+		}
+
+		if _, err := links.CreateBucketIfNotExists(d2hBucket); err != nil {
+			return err
+		}
+
+		if _, err := links.CreateBucketIfNotExists(h2dBucket); err != nil {
+			return err
 		}
 
 		dbb.ForEach(func(k []byte, v []byte) error {

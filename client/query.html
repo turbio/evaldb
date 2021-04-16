@@ -15,6 +15,7 @@
   <script src="https://unpkg.com/react@16/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@16/umd/react-dom.production.min.js" crossorigin></script>
   <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.12/ace.js" integrity="sha512-GZ1RIgZaSc8rnco/8CXfRdCpDxRCphenIiZ2ztLy3XQfCbQUSCuk8IudvNHxkRA3oUg6q0qejgN/qqyG1duv5Q==" crossorigin="anonymous"></script>
 </head>
 <body>
   <div class="headbar">
@@ -24,21 +25,39 @@
 
   <div class="blocks">
     <h1>Here's your <span class="subst-dblang"></span> database</h1>
-    <form action="/create" method="POST">
-      <div>
-        <label for="db-name">key:</label>
+    <div>
+      <label for="db-name">key:</label>
+      <input
+        type="text"
+        name="name"
+        value="..."
+        placeholder="db name (keep this secret)"
+        id="db-name"
+        style="width: 20em; height: 2.5em"
+        readonly
+      />
+      <span style="display: inline-block">(keep this secret!)</span>
+      <br/>
+      <br/>
+
+      <form action="/link" method="POST">
+        <label for="db-setdomain">http endpoint:</label>
+        <input type="hidden" name="dbname" value="{{.Name}}" />
         <input
           type="text"
-          name="name"
-          value="..."
-          placeholder="db name (keep this secret)"
-          id="db-name"
-          style="width: 20em; height: 2.5em"
-          readonly
+          name="hostname"
+          value="{{.Link}}"
+          placeholder="hostname"
+          id="db-setdomain"
+          style="width: 15em; height: 2.5em"
         />
-        <span style="display: inline-block">(keep this secret)</span>
-      </div>
-    </form>
+        <input type="submit" value="link" />
+        <span style="display: inline-block">
+          http requests to {{with .Link }}{{.}}{{else}}&lt;hostname&gt;{{end}}.evaldb.turb.io
+          will become function calls in your database!
+        </span>
+      </form>
+    </div>
   </div>
 
   <br/>

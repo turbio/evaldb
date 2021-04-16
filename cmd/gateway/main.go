@@ -274,34 +274,9 @@ func tail(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func eval(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set(
-		"Access-Control-Allow-Methods",
-		"POST, GET, OPTIONS, PUT, DELETE",
-	)
-
-	if r.Method == "HEAD" || r.Method == "OPTIONS" {
-		return
-	}
-
-	dbname := strings.TrimPrefix(r.URL.Path, "/eval/")
-	if !hasDB(dbname) {
-		http.Error(w, "doesn't exist", http.StatusBadRequest)
-		return
-	}
-
-	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestSize)
-
-	q, ok := parseQuery(w, r)
-	if !ok {
-		return
-	}
-
+func doEval(dbname string, q *query) *queryResult {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-
-	log.Println(dbname, "evaling", q)
 
 	e, fresh, err := acquireEvaler(dbname)
 	if err != nil {
@@ -377,7 +352,38 @@ func eval(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 
-	remarsh, err := json.Marshal(&result)
+	return &result
+}
+
+func eval(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set(
+		"Access-Control-Allow-Methods",
+		"POST, GET, OPTIONS, PUT, DELETE",
+	)
+
+	if r.Method == "HEAD" || r.Method == "OPTIONS" {
+		return
+	}
+
+	dbname := strings.TrimPrefix(r.URL.Path, "/eval/")
+	if !hasDB(dbname) {
+		http.Error(w, "doesn't exist", http.StatusBadRequest)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestSize)
+
+	q, ok := parseQuery(w, r)
+	if !ok {
+		return
+	}
+
+	log.Println(dbname, "evaling", q)
+
+	result := doEval(dbname, q)
+
+	remarsh, err := json.Marshal(result)
 	if err != nil {
 		panic(err)
 	}
@@ -432,6 +438,29 @@ func create(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/query/"+name, http.StatusFound)
 }
 
+func link(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+	if err != nil {
+		log.Println("unable to parse link", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	dbname := r.FormValue("dbname")
+	if !hasDB(dbname) {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	hostname := r.FormValue("hostname")
+
+	if err := setLink(dbname, hostname); err != nil {
+		panic(err)
+	}
+
+	http.Redirect(w, r, "/query/"+dbname, http.StatusFound)
+}
+
 func queryPage(w http.ResponseWriter, r *http.Request) {
 	dbname := strings.TrimPrefix(r.URL.Path, "/query/")
 	log.Println(dbname, "get query page")
@@ -447,17 +476,67 @@ func queryPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	link, err := linkForDB(dbname)
+	if err != nil {
+		link = ""
+	}
+
 	var indexTmpl = template.Must(template.ParseFiles("./client/query.html"))
 	err = indexTmpl.Execute(w, struct {
 		Lang string
 		Name string
+		Link string
 	}{
 		Lang: lang,
 		Name: dbname,
+		Link: link,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+}
+
+func webReqHandle(w http.ResponseWriter, r *http.Request) {
+	dbname, err := dbForHost(r.Host)
+
+	log.Println("webr", r.Host)
+
+	if err == errDBNotExists {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("404"))
+		return
+	} else if err != nil {
+		panic(err)
+	}
+
+	result := doEval(dbname, &query{
+		Code: "return http.req(r)",
+		Args: map[string]interface{}{
+			"r": map[string]interface{}{
+				"path":   r.URL.Path,
+				"method": r.Method,
+				//"headers": r.Header,
+			},
+		},
+	})
+
+	if result.Error != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+
+		if asStr, ok := result.Error.(string); ok {
+			w.Write([]byte(asStr))
+		} else {
+			w.Write([]byte("internal error, route return object not a string"))
+		}
+		return
+	}
+
+	if asStr, ok := result.Object.(string); ok {
+		w.Write([]byte(asStr))
+	} else {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("internal error, route didn't return a string"))
 	}
 }
 
@@ -470,16 +549,37 @@ func main() {
 	openDB(path.Join(*dp, "__meta"))
 	userDBsPath = path.Join(*dp, "dbs")
 
-	http.HandleFunc("/create", create)
+	dbMux := &http.ServeMux{}
+	dbMux.HandleFunc("/create", create)
+	dbMux.HandleFunc("/link", link)
+	dbMux.HandleFunc("/memgraph.svg", memgraph)
+	dbMux.HandleFunc("/eval/", eval)
+	dbMux.HandleFunc("/tail/", tail)
+	dbMux.HandleFunc("/query/", queryPage)
+	dbMux.Handle("/", http.FileServer(http.Dir("./client")))
 
-	http.HandleFunc("/memgraph.svg", memgraph)
+	webMux := &http.ServeMux{}
+	webMux.HandleFunc("/", webReqHandle)
 
-	http.HandleFunc("/eval/", eval)
-	http.HandleFunc("/tail/", tail)
-
-	http.HandleFunc("/query/", queryPage)
-	http.Handle("/", http.FileServer(http.Dir("./client")))
+	root := &http.ServeMux{}
+	root.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if isRoot(r.Host) {
+			dbMux.ServeHTTP(w, r)
+		} else {
+			webMux.ServeHTTP(w, r)
+		}
+	})
 
 	log.Println("http on :" + *port)
-	log.Fatalln(http.ListenAndServe(":"+*port, nil))
+	log.Fatalln(http.ListenAndServe(":"+*port, root))
+}
+
+func dbForHost(host string) (string, error) {
+	host = strings.TrimSuffix(host, ".localhost:5000")
+	host = strings.TrimSuffix(host, ".evaldb.turb.io")
+	return dbForLink(host)
+}
+
+func isRoot(host string) bool {
+	return host == "localhost:5000" || host == "evaldb.turb.io"
 }

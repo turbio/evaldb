@@ -154,30 +154,34 @@ const Entry = ({
   doEdit,
   doGoto,
 }) => [
-  type === 'initial'
-    ? e(InitialGen, { key: id })
-    : e(Gen, { result, query, key: id, doEdit, doGoto }),
-  ...children.map((ch, i, arr) =>
-    e(i !== arr.length - 1 || id === head ? Timeline : Entry, {
-      gen: ch,
-      head,
-      key: ch.id,
-      newQuery,
-      setQuery,
-      doQuery,
-      doEdit,
-      doGoto,
-    }),
-  ),
   id === head
     ? e(Input, { key: 'input-' + head, newQuery, setQuery, doQuery })
     : undefined,
+  ...children
+    .sort((l, r) => {
+      return r.result.gen - l.result.gen;
+    })
+    .map((ch, i, arr) =>
+      e(i !== 0 || id === head ? Timeline : Entry, {
+        gen: ch,
+        head,
+        key: ch.id,
+        newQuery,
+        setQuery,
+        doQuery,
+        doEdit,
+        doGoto,
+      }),
+    ),
+  type === 'initial'
+    ? e(InitialGen, { key: id })
+    : e(Gen, { result, query, key: id, doEdit, doGoto }),
 ];
 
 class Input extends React.Component {
   componentDidMount() {
     this.textarea && this.textarea.focus();
-    this.entry && this.entry.scrollIntoView();
+    //this.entry && this.entry.scrollIntoView();
   }
 
   render() {
