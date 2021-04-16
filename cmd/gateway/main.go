@@ -454,7 +454,7 @@ func link(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hostname := r.FormValue("hostname")
-	if _, err := dbForLink(hostname); err != nil {
+	if existing, _ := dbForLink(hostname); existing != "" {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		w.Write([]byte("another db is using that hostname"))
 		return
