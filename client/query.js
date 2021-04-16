@@ -104,7 +104,7 @@ class Query extends React.Component {
         code,
         args,
         readonly,
-        // gen: head,
+        gen: head,
       }),
     })
       .then(res => res.json())
@@ -132,6 +132,12 @@ class Query extends React.Component {
       newQuery,
       setQuery: this.setQuery.bind(this),
       doQuery: this.doQuery.bind(this),
+      doEdit: gen =>
+        this.setState({
+          head: gen.result.parent,
+          newQuery: { code: gen.query.code, args: [] },
+        }),
+      doGoto: gen => this.setState({ head: gen.result.gen }),
     });
   }
 }
@@ -145,10 +151,12 @@ const Entry = ({
   newQuery,
   setQuery,
   doQuery,
+  doEdit,
+  doGoto,
 }) => [
   type === 'initial'
     ? e(InitialGen, { key: id })
-    : e(Gen, { result, query, key: id }),
+    : e(Gen, { result, query, key: id, doEdit, doGoto }),
   ...children.map((ch, i, arr) =>
     e(i !== arr.length - 1 || id === head ? Timeline : Entry, {
       gen: ch,
@@ -157,6 +165,8 @@ const Entry = ({
       newQuery,
       setQuery,
       doQuery,
+      doEdit,
+      doGoto,
     }),
   ),
   id === head
@@ -354,6 +364,8 @@ const InitialGen = () =>
 const Gen = ({
   result: { gen, parent, walltime, warn, error, object, warm },
   query: { code, args, readonly },
+  doEdit,
+  doGoto,
 }) =>
   e(
     'div',
@@ -377,6 +389,34 @@ const Gen = ({
           rows: Math.min(10, code.split('\n').length),
         }),
         e('div', { className: 'func-head' }, funcSyntax.tail),
+      ),
+      e(
+        'div',
+        { className: 'q-buttons' },
+        e(
+          'button',
+          {
+            className: 'read-btn q-btn',
+            onClick: () =>
+              doGoto({
+                result: { gen, parent },
+                query: { code, args, readonly },
+              }),
+          },
+          'goto',
+        ),
+        e(
+          'button',
+          {
+            className: 'q-btn',
+            onClick: () =>
+              doEdit({
+                result: { gen, parent },
+                query: { code, args, readonly },
+              }),
+          },
+          'edit',
+        ),
       ),
     ),
     e(
