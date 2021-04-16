@@ -3,6 +3,8 @@
 const e = React.createElement;
 const frag = React.Fragment;
 
+let inst_query;
+
 const funcSyntax = {
   luaval: {
     headOpen: `function(`,
@@ -121,6 +123,12 @@ class Query extends React.Component {
       const t = JSON.parse(e.data);
       this.mergeInTransaction(t);
     });
+  }
+
+  componentDidMount() {
+    inst_query = code => {
+      this.setQuery({ code, args: [] });
+    };
   }
 
   render() {

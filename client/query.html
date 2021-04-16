@@ -54,12 +54,14 @@
         <input type="submit" value="link" />
           {{if .Link}}
             <p>
-              Your database is configured to receive http requests at <code>{{.Link}}.turb.io</code>. Every incoming http request will call the function <code>http.req</code> in your database. The first parameter will be an object representing the incoming request which looks like: <code style="display: inline-block">{ "method": "GET", "path": "/", "headers": { "Host": "..." }, "body": "" }</code>. The return value of your <code>http.req</code> function should be a string which will be served as the http response.
+              Your database is configured to receive http requests at <code>{{.Link}}.turb.io</code>. Every incoming http request will call the function <code>http.req</code> in your database.
+            </p>
+            <p>
+              To make http a bit easier you can run <a onclick="inst_query(http_preamble['{{.Lang}}'])" href="#">this code</a>. This lets you add a route with code like <code>http.get('/', function(req)...)</code>.
             </p>
         {{else}}
           <span style="line-height: 2em;">
-            You can link your database so http requests to <code>&lt;host&gt;.turb.io</code> will call functions
-            in your database.
+             Adding an http endpoint makes your database to serve http requests to <code>&lt;host&gt;.turb.io</code>.
           </span>
         {{end}}
       </form>
@@ -174,6 +176,70 @@ var dbname = "{{.Name}}"
 document.getElementById('db-name').value = dbname;
 [...document.getElementsByClassName('subst-dbname')].forEach(e => e.textContent = dbname);
 [...document.getElementsByClassName('subst-dblang')].forEach(e => e.textContent = langNames[lang]);
+
+var http_preamble = {
+duktape: `var routes = {
+  GET: {},
+  POST: {},
+};
+
+var register = function(method, path, router) {
+  routes[method][path] = router;
+};
+
+var req = function(r) {
+  if (!routes[r.method]) {
+    return 'unknown method "' + r.method + '"';
+  }
+
+  if (routes[r.method][r.path]) {
+    return routes[r.method][r.path](r);
+  }
+
+  return 'cannot ' + r.method + ' ' + r.path;
+};
+
+this.http = {
+  get: function(path, router) {
+    register('GET', path, router);
+  },
+  post: function(path, router) {
+    register('POST', path, router);
+  },
+  req: req,
+};`,
+luaval: `local routes = {
+	GET  = {},
+	POST = {},
+}
+
+local register = function(method, path, router)
+	assert(type(method) == 'string', 'the method must be a string')
+	assert(routes[method], 'the method must be known')
+	assert(type(path) == 'string', 'the path must be a string')
+	assert(type(router) == 'function', 'the router callback must be a function')
+
+	routes[method][path] = router
+end
+
+local req = function(r)
+	if not routes[r.method] then
+		return 'unknown method "' .. r.method .. '"'
+	end
+
+	if routes[r.method][r.path] then
+		return routes[r.method][r.path](r)
+	end
+
+	return 'cannot ' .. r.method .. ' ' .. r.path
+end
+
+http = {
+	get  = function(path, router) register('GET', path, router) end,
+	post = function(path, router) register('POST', path, router) end,
+	req = req,
+}
+`};
   </script>
 
   <script src="/query.js" charset="utf-8"></script>
