@@ -406,8 +406,8 @@ input[type="submit"]:hover {
 }
 
 code {
-  padding-top: 1em;
-  padding-bottom: 1em;
+  padding: 0.2em;
+  background: #eee;
 }
 
 .headbar-dbname {

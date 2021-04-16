@@ -13,7 +13,7 @@ local register = function(method, path, router)
 end
 
 local req = function(r)
-	if (not routes[r.method]) then
+	if not routes[r.method] then
 		return 'unknown method "' .. r.method .. '"'
 	end
 

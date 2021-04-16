@@ -449,10 +449,16 @@ func link(w http.ResponseWriter, r *http.Request) {
 	dbname := r.FormValue("dbname")
 	if !hasDB(dbname) {
 		http.Error(w, err.Error(), http.StatusNotFound)
+		w.Write([]byte("huh that db doesn't exist???"))
 		return
 	}
 
 	hostname := r.FormValue("hostname")
+	if _, err := dbForLink(hostname); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		w.Write([]byte("another db is using that hostname"))
+		return
+	}
 
 	if err := setLink(dbname, hostname); err != nil {
 		panic(err)
@@ -576,7 +582,7 @@ func main() {
 
 func dbForHost(host string) (string, error) {
 	host = strings.TrimSuffix(host, ".localhost:5000")
-	host = strings.TrimSuffix(host, ".evaldb.turb.io")
+	host = strings.TrimSuffix(host, ".turb.io")
 	return dbForLink(host)
 }
 

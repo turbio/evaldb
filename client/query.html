@@ -52,10 +52,16 @@
           style="width: 15em; height: 2.5em"
         />
         <input type="submit" value="link" />
-        <span style="display: inline-block">
-          http requests to {{with .Link }}{{.}}{{else}}&lt;hostname&gt;{{end}}.evaldb.turb.io
-          will become function calls in your database!
-        </span>
+          {{if .Link}}
+            <p>
+              Your database is configured to receive http requests at <code>{{.Link}}.turb.io</code>. Every incoming http request will call the function <code>http.req</code> in your database. The first parameter will be an object representing the incoming request which looks like: <code style="display: inline-block">{ "method": "GET", "path": "/", "headers": { "Host": "..." }, "body": "" }</code>. The return value of your <code>http.req</code> function should be a string which will be served as the http response.
+            </p>
+        {{else}}
+          <span style="line-height: 2em;">
+            You can link your database so http requests to <code>&lt;host&gt;.turb.io</code> will call functions
+            in your database.
+          </span>
+        {{end}}
       </form>
     </div>
   </div>
