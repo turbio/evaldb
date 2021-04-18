@@ -253,8 +253,7 @@ func tail(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println(target, "tail done")
-			log.WithField("db", db).Println("tail error")
+			log.WithField("db", target).Println("tail done")
 			return
 		case t := <-ch:
 			data, _ := json.Marshal(t)
@@ -443,22 +442,19 @@ func create(w http.ResponseWriter, r *http.Request) {
 func link(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
 	if err != nil {
-		log.WithError(err).Println("unable to parse link")
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "unable to parse link", http.StatusBadRequest)
 		return
 	}
 
 	dbname := r.FormValue("dbname")
 	if !hasDB(dbname) {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		w.Write([]byte("huh that db doesn't exist???"))
+		http.Error(w, "huh that db doesn't exist???", http.StatusBadRequest)
 		return
 	}
 
 	hostname := r.FormValue("hostname")
 	if existing, _ := dbForLink(hostname); existing != "" {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		w.Write([]byte("another db is using that hostname"))
+		http.Error(w, "another db is using that hostname", http.StatusBadRequest)
 		return
 	}
 
@@ -554,15 +550,17 @@ func webReqHandle(w http.ResponseWriter, r *http.Request) {
 	} else if asObj, ok := result.Object.(map[string]interface{}); ok {
 		status := http.StatusOK
 		if maybeKey, ok := asObj["status"]; ok {
-			if maybeInt, ok := maybeKey.(int); ok {
-				status = maybeInt
+			if maybeInt, ok := maybeKey.(float64); ok {
+				status = int(maybeInt)
 			}
 		}
 
 		if maybeKey, ok := asObj["headers"]; ok {
-			if maybeHeaders, ok := maybeKey.(map[string]string); ok {
+			if maybeHeaders, ok := maybeKey.(map[string]interface{}); ok {
 				for key, val := range maybeHeaders {
-					w.Header().Set(key, val)
+					if maybeStr, ok := val.(string); ok {
+						w.Header().Set(key, maybeStr)
+					}
 				}
 			}
 		}
