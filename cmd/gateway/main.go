@@ -9,7 +9,6 @@ import (
 	"html/template"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -19,11 +18,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 )
-
-func init() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-}
 
 type query struct {
 	Code     string                 `json:"code"`
@@ -206,28 +202,28 @@ func memgraph(w http.ResponseWriter, r *http.Request) {
 
 	err := grapher.Start()
 	if err != nil {
-		log.Println(err)
+		log.WithField("db", db).WithError(err).Println("cant start grapher")
 		w.WriteHeader(500)
 		return
 	}
 
 	err = renderer.Start()
 	if err != nil {
-		log.Println(err)
+		log.WithField("db", db).WithError(err).Println("cant start render")
 		w.WriteHeader(500)
 		return
 	}
 
 	err = grapher.Wait()
 	if err != nil {
-		log.Println(err)
+		log.WithField("db", db).WithError(err).Println("cant wait grapher")
 		w.WriteHeader(500)
 		return
 	}
 
 	err = renderer.Wait()
 	if err != nil {
-		log.Println(err)
+		log.WithField("db", db).WithError(err).Println("cant wait render")
 		w.WriteHeader(500)
 		return
 	}
@@ -235,7 +231,7 @@ func memgraph(w http.ResponseWriter, r *http.Request) {
 
 func tail(w http.ResponseWriter, r *http.Request) {
 	target := strings.TrimPrefix(r.URL.Path, "/tail/")
-	log.Println(target, "tailing")
+	log.WithField("db", target).Println("tailing")
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	f := w.(http.Flusher)
@@ -245,7 +241,7 @@ func tail(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		err := tailDB(target, ch)
 		if err != nil {
-			log.Println(target, "tail error", err)
+			log.WithField("db", target).WithError(err).Println("tail error")
 			http.Error(w, "oh no", http.StatusBadRequest)
 		}
 	}()
@@ -258,6 +254,7 @@ func tail(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			log.Println(target, "tail done")
+			log.WithField("db", db).Println("tail error")
 			return
 		case t := <-ch:
 			data, _ := json.Marshal(t)
@@ -265,7 +262,7 @@ func tail(w http.ResponseWriter, r *http.Request) {
 				"event: transac\ndata: " + string(data) + "\n\n",
 			))
 			if err != nil {
-				log.Println(target, "tail write err", err)
+				log.WithField("db", db).WithError(err).Println("tail write error")
 				return
 			}
 
@@ -280,7 +277,7 @@ func doEval(dbname string, q *query) *queryResult {
 
 	e, fresh, err := acquireEvaler(dbname)
 	if err != nil {
-		log.Println(dbname, "unable to acquire", err)
+		log.WithField("db", dbname).WithError(err).Println("unable to acquire")
 		panic(err)
 	}
 
@@ -315,7 +312,9 @@ func doEval(dbname string, q *query) *queryResult {
 
 	select {
 	case <-ctx.Done():
-		log.Println(dbname, "execution timed out", err, q)
+		log.WithField("db", dbname).
+			WithField("query", q).
+			WithError(err).Println("execution timed out")
 
 		e.timeout()
 		<-ran
@@ -330,7 +329,10 @@ func doEval(dbname string, q *query) *queryResult {
 			result.Parent = 0
 			result.Gen = -1
 
-			log.Printf("%s unable to unmarshal res: %v %#v", dbname, err, string(buff))
+			log.WithField("db", dbname).
+				WithField("query", q).
+				WithError(err).
+				Printf("unable to unmarshal: %#v", string(buff))
 
 			result.Error = fmt.Sprintf(
 				"evaler send a bad response:\n%v\ngot: %#v",
@@ -379,7 +381,7 @@ func eval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Println(dbname, "evaling", q)
+	log.WithField("db", dbname).WithField("query", q).Println("evaling")
 
 	result := doEval(dbname, q)
 
@@ -395,7 +397,7 @@ func eval(w http.ResponseWriter, r *http.Request) {
 func create(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
 	if err != nil {
-		log.Println("unable to parse create", err)
+		log.WithError(err).Println("unable to parse create")
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -414,7 +416,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if lang != "luaval" && lang != "duktape" {
-		log.Println(name, "unexpected language", lang)
+		log.WithError(err).Println("unepxected language:", lang)
 		http.Error(w, "invalid language", http.StatusBadRequest)
 		return
 	}
@@ -422,18 +424,18 @@ func create(w http.ResponseWriter, r *http.Request) {
 	err = createDB(name, lang)
 	if err != nil {
 		if err == errDBExists {
-			log.Println(name, "db exists, weird", err)
+			log.WithField("db", name).Println("db exists, weird")
 			http.Redirect(w, r, "/query/"+name, http.StatusFound)
 			return
 		}
 
-		log.Println(name, "unable to create db", err)
+		log.WithField("db", name).WithError(err).Println("unable to create db")
 
 		http.Error(w, "oh no", http.StatusInternalServerError)
 		return
 	}
 
-	log.Println(name, "created", lang, "db")
+	log.WithField("db", name).WithField("lang", lang).Println("created db")
 
 	http.Redirect(w, r, "/query/"+name, http.StatusFound)
 }
@@ -441,7 +443,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 func link(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
 	if err != nil {
-		log.Println("unable to parse link", err)
+		log.WithError(err).Println("unable to parse link")
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -464,12 +466,14 @@ func link(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 
+	log.WithField("db", dbname).WithField("host", hostname).Println("linked domain")
+
 	http.Redirect(w, r, "/query/"+dbname, http.StatusFound)
 }
 
 func queryPage(w http.ResponseWriter, r *http.Request) {
 	dbname := strings.TrimPrefix(r.URL.Path, "/query/")
-	log.Println(dbname, "get query page")
+	log.WithField("db", dbname).Println("get query page")
 
 	if !hasDB(dbname) {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -506,15 +510,22 @@ func queryPage(w http.ResponseWriter, r *http.Request) {
 func webReqHandle(w http.ResponseWriter, r *http.Request) {
 	dbname, err := dbForHost(r.Host)
 
-	log.Println("webr", r.Host)
-
 	if err == errDBNotExists {
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte("404"))
+		log.WithField("db", dbname).
+			WithField("path", r.URL.Path).
+			WithField("host", r.Host).
+			Println("web req not found")
 		return
 	} else if err != nil {
 		panic(err)
 	}
+
+	log.WithField("db", dbname).
+		WithField("path", r.URL.Path).
+		WithField("host", r.Host).
+		Println("web req")
 
 	result := doEval(dbname, &query{
 		Code: "return http.req(r)",

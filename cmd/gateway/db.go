@@ -3,11 +3,11 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"log"
 	"strconv"
 	"sync"
 
 	"github.com/boltdb/bolt"
+	log "github.com/sirupsen/logrus"
 )
 
 var errDBExists = errors.New("db already exists")
