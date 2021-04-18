@@ -551,6 +551,29 @@ func webReqHandle(w http.ResponseWriter, r *http.Request) {
 
 	if asStr, ok := result.Object.(string); ok {
 		w.Write([]byte(asStr))
+	} else if asObj, ok := result.Object.(map[string]interface{}); ok {
+		status := http.StatusOK
+		if maybeKey, ok := asObj["status"]; ok {
+			if maybeInt, ok := maybeKey.(int); ok {
+				status = maybeInt
+			}
+		}
+
+		if maybeKey, ok := asObj["headers"]; ok {
+			if maybeHeaders, ok := maybeKey.(map[string]string); ok {
+				for key, val := range maybeHeaders {
+					w.Header().Set(key, val)
+				}
+			}
+		}
+
+		w.WriteHeader(status)
+
+		if maybeKey, ok := asObj["body"]; ok {
+			if maybeBody, ok := maybeKey.(string); ok {
+				w.Write([]byte(maybeBody))
+			}
+		}
 	} else {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("internal error, route didn't return a string"))
