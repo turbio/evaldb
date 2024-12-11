@@ -37,9 +37,10 @@
         readonly
       />
       <span style="display: inline-block">(keep this secret!)</span>
-      <br/>
-      <br/>
 
+      <!--
+      <br/>
+      <br/>
       <form action="/link" method="POST">
         <label for="db-setdomain">http endpoint:</label>
         <input type="hidden" name="dbname" value="{{.Name}}" />
@@ -65,6 +66,13 @@
           </span>
         {{end}}
       </form>
+      -->
+    </div>
+    <div>
+      It's an actual <span class="subst-dblang"></span> interpreter but with
+      persistent storage. Every query is executed in a shared environment but
+      only <code>write</code> queries are committed to disk. <code>read</code>s
+      and errors rollback any changes.
     </div>
   </div>
 
@@ -156,7 +164,7 @@ curl 'https://evaldb.turb.io/eval/<span class="subst-dbname">...</span>' \
   </div>
 
   <div class="blocks">
-    <h1>Try querying it</h1>
+    <h2>Run a query</h2>
     <div class="sep"></div>
     <div id="query" class="timeline"></div>
   </div>
